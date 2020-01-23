@@ -15,9 +15,11 @@ const Sexpr = struct {
     };
 
     const Token = union(enum) {
-        OpenBrace: void,
-        CloseBrace: void,
+        OpenParen: void,
+        CloseParen: void,
         Newline: void,
+        OpenParenSemicolon: void,
+        SemicolonCloseParen: void,
         SemicolonSemicolon: void,
         Literal: []const u8,
     };
@@ -36,7 +38,7 @@ const Sexpr = struct {
 
         var tokenizer = Tokenizer.init(string);
         if (tokenizer.next()) |token| {
-            if (token != .OpenBrace) {
+            if (token != .OpenParen) {
                 return error.ParseError;
             }
         } else {
@@ -58,7 +60,7 @@ const Sexpr = struct {
         var list = std.ArrayList(Elem).init(arena);
         while (tokenizer.next()) |token| {
             switch (token) {
-                .OpenBrace => try list.append(.{ .list = try parseList(arena, tokenizer) }),
+                .OpenParen => try list.append(.{ .list = try parseList(arena, tokenizer) }),
                 .Literal => |literal| {
                     try list.append(switch (literal[0]) {
                         '"' => .{ .string = literal },
@@ -67,8 +69,17 @@ const Sexpr = struct {
                         else => .{ .keyword = literal },
                     });
                 },
-                .CloseBrace => return list.toOwnedSlice(),
+                .CloseParen => return list.toOwnedSlice(),
                 .Newline => {},
+                .OpenParenSemicolon => {
+                    while (tokenizer.next()) |comment| {
+                        if (comment == .SemicolonCloseParen) {
+                            break;
+                        }
+                    }
+                    return error.ParseError;
+                },
+                .SemicolonCloseParen => return error.ParseError,
                 .SemicolonSemicolon => {
                     while (tokenizer.next()) |comment| {
                         if (comment == .Newline) {
@@ -99,8 +110,15 @@ const Sexpr = struct {
             self.cursor += 1;
             switch (self.raw[start]) {
                 0, ' ', '\t' => return self.next(),
-                '(' => return Token{ .OpenBrace = {} },
-                ')' => return Token{ .CloseBrace = {} },
+                '(' => {
+                    if (self.cursor <= self.raw.len and self.raw[self.cursor] == ';') {
+                        self.cursor += 1;
+                        return Token{ .OpenParenSemicolon = {} };
+                    } else {
+                        return Token{ .OpenParen = {} };
+                    }
+                },
+                ')' => return Token{ .CloseParen = {} },
                 '\n' => return Token{ .Newline = {} },
                 ';' => {
                     if (self.cursor > self.raw.len) {
@@ -108,6 +126,9 @@ const Sexpr = struct {
                     } else if (self.raw[self.cursor] == ';') {
                         self.cursor += 1;
                         return Token{ .SemicolonSemicolon = {} };
+                    } else if (self.raw[self.cursor] == ')') {
+                        self.cursor += 1;
+                        return Token{ .SemicolonCloseParen = {} };
                     } else {
                         // "fallthrough"
                     }
@@ -117,7 +138,7 @@ const Sexpr = struct {
 
             while (self.cursor < self.raw.len) : (self.cursor += 1) {
                 switch (self.raw[self.cursor]) {
-                    ' ', '\t', '(', ')', '\n' => break,
+                    ' ', '\t', '(', ')', '\n', ';' => break,
                     else => {},
                 }
             }
@@ -129,22 +150,18 @@ const Sexpr = struct {
 
 test "Tokenizer" {
     {
-        var tokenizer = Sexpr.Tokenizer.init("(type (;1;) (func (param i32 i32)");
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenBrace, tokenizer.next().?);
+        var tokenizer = Sexpr.Tokenizer.init("(type (func (param i32 i32)");
+        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
         std.testing.expectEqualSlices(u8, "type", tokenizer.next().?.Literal);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenBrace, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, ";1;", tokenizer.next().?.Literal);
-        std.testing.expectEqual(@TagType(Sexpr.Token).CloseBrace, tokenizer.next().?);
-
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenBrace, tokenizer.next().?);
+        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
         std.testing.expectEqualSlices(u8, "func", tokenizer.next().?.Literal);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenBrace, tokenizer.next().?);
+        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
         std.testing.expectEqualSlices(u8, "param", tokenizer.next().?.Literal);
         std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.Literal);
         std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.Literal);
-        std.testing.expectEqual(@TagType(Sexpr.Token).CloseBrace, tokenizer.next().?);
+        std.testing.expectEqual(@TagType(Sexpr.Token).CloseParen, tokenizer.next().?);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
     }
@@ -160,6 +177,16 @@ test "Tokenizer" {
         std.testing.expectEqual(@TagType(Sexpr.Token).Newline, tokenizer.next().?);
         std.testing.expectEqualSlices(u8, "local.get", tokenizer.next().?.Literal);
         std.testing.expectEqualSlices(u8, "4", tokenizer.next().?.Literal);
+
+        std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
+    }
+    {
+        var tokenizer = Sexpr.Tokenizer.init("foo (;0;)");
+        std.testing.expectEqualSlices(u8, "foo", tokenizer.next().?.Literal);
+
+        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParenSemicolon, tokenizer.next().?);
+        std.testing.expectEqualSlices(u8, "0", tokenizer.next().?.Literal);
+        std.testing.expectEqual(@TagType(Sexpr.Token).SemicolonCloseParen, tokenizer.next().?);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
     }
