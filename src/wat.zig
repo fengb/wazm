@@ -66,7 +66,8 @@ const Sexpr = struct {
                         '"' => .{ .string = literal },
                         '$' => .{ .id = literal },
                         '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, literal, 10) },
-                        else => .{ .keyword = literal },
+                        'a'...'z' => .{ .keyword = literal },
+                        else => return error.ParseError,
                     });
                 },
                 .CloseParen => return list.toOwnedSlice(),

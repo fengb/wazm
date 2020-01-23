@@ -30,15 +30,26 @@ pub const Module = struct {
 
     pub const Func = struct {
         name: []const u8,
-        params: []Decl,
-        result: Type,
-        locals: []Decl,
-        instrs: []Op, // TODO: fill with actual instructions
+        params: []Type,
+        result: ?Type,
+        locals: []Type,
+        instrs: []Instr,
+    };
 
-        const Decl = struct {
-            name: []const u8,
-            typ: Type,
-        };
+    pub const Instr = struct {
+        op: Op,
+        arg: union(enum) {
+            none: void,
+            type_: i8,
+            u32: u32,
+            u64: u64,
+            f32: f32,
+            f64: f64,
+            mem: struct {
+                offset: u32,
+                align_: u32,
+            },
+        },
     };
 };
 
