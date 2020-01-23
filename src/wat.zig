@@ -1,4 +1,5 @@
 const std = @import("std");
+const core = @import("core.zig");
 
 const Sexpr = struct {
     arena: *std.heap.ArenaAllocator,
@@ -184,5 +185,78 @@ test "Sexpr.parse" {
         std.testing.expectEqualSlices(u8, "block", sexpr.root[0].Symbol);
         std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].Symbol);
         std.testing.expectEqualSlices(u8, "4", sexpr.root[2].Symbol);
+    }
+}
+
+pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
+    var sexpr = try Sexpr.parse(allocator, string);
+    defer sexpr.deinit();
+
+    const arena = try allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    errdefer {
+        arena.deinit();
+        allocator.destroy(arena);
+    }
+
+    if (sexpr.root.len == 0) {
+        return error.ParseError;
+    }
+
+    if (!std.mem.eql(u8, sexpr.root[0].Symbol, "module")) {
+        return error.ParseError;
+    }
+
+    var list = std.ArrayList(core.Module.Node).init(&arena.allocator);
+    for (sexpr.root[1..]) |elem| {
+        try list.append(try parseNode(&arena.allocator, elem));
+    }
+
+    return core.Module{
+        .arena = arena,
+        .nodes = list.toOwnedSlice(),
+    };
+}
+
+fn parseNode(arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
+    switch (elem) {
+        .Symbol => return error.ParseError,
+        .List => |list| {
+            if (list.len == 0) {
+                return error.ParseError;
+            }
+
+            if (list[0] != .Symbol) {
+                return error.ParseError;
+            }
+
+            if (std.mem.eql(u8, list[0].Symbol, "memory")) {
+                if (list.len != 2) {
+                    return error.ParseError;
+                }
+
+                return core.Module.Node{
+                    .memory = 42,
+                };
+            }
+        },
+    }
+
+    @panic("Nope");
+}
+
+test "parse" {
+    {
+        var module = try parse(std.heap.page_allocator, "(module)");
+        defer module.deinit();
+
+        std.testing.expectEqual(@as(usize, 0), module.nodes.len);
+    }
+    {
+        var module = try parse(std.heap.page_allocator, "(module (memory 42))");
+        defer module.deinit();
+
+        std.testing.expectEqual(@as(usize, 1), module.nodes.len);
+        std.testing.expectEqual(@as(usize, 42), module.nodes[0].memory);
     }
 }
