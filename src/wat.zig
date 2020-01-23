@@ -4,7 +4,7 @@ const Sexpr = struct {
     arena: *std.heap.ArenaAllocator,
     root: []Elem,
 
-    const Elem = union {
+    const Elem = union(enum) {
         List: []Elem,
         Symbol: []const u8,
     };
@@ -16,6 +16,57 @@ const Sexpr = struct {
         SemicolonSemicolon: void,
         Literal: []const u8,
     };
+
+    pub fn deinit(self: *Sexpr) void {
+        self.arena.deinit();
+    }
+
+    pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Sexpr {
+        const arena = try allocator.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(allocator);
+        errdefer {
+            arena.deinit();
+            allocator.destroy(arena);
+        }
+
+        var tokenizer = Tokenizer.init(string);
+        if (tokenizer.next()) |token| {
+            if (token != .OpenBrace) {
+                return error.ParseError;
+            }
+        } else {
+            return error.ParseError;
+        }
+
+        return Sexpr{
+            .arena = arena,
+            .root = try parseList(&arena.allocator, &tokenizer),
+        };
+    }
+
+    fn parseList(arena: *std.mem.Allocator, tokenizer: *Tokenizer) error{
+        OutOfMemory,
+        ParseError,
+    }![]Elem {
+        var list = std.ArrayList(Elem).init(arena);
+        while (tokenizer.next()) |token| {
+            switch (token) {
+                .OpenBrace => try list.append(.{ .List = try parseList(arena, tokenizer) }),
+                .Literal => |literal| try list.append(.{ .Symbol = literal }),
+                .CloseBrace => return list.toOwnedSlice(),
+                .Newline => {},
+                .SemicolonSemicolon => {
+                    while (tokenizer.next()) |comment| {
+                        if (comment == .Newline) {
+                            break;
+                        }
+                    }
+                },
+            }
+        }
+
+        return error.ParseError;
+    }
 
     const Tokenizer = struct {
         raw: []const u8,
@@ -60,36 +111,6 @@ const Sexpr = struct {
             return Token{ .Literal = self.raw[start..self.cursor] };
         }
     };
-
-    pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Sexpr {
-        const arena = allocator.create(std.heap.ArenaAllocator);
-        errdefer {
-            arena.deinit();
-            allocator.destroy(arena);
-        }
-
-        var tokenizer = Tokenizer.init(string);
-        if (tokenizer.next()) |token| {
-            if (token.typ != .OpenBrace) {
-                return error.ParseError;
-            }
-        } else {
-            return error.ParseError;
-        }
-
-        return .{
-            .arena = arena,
-            .root = try parseList(arena, &tokenizer),
-        };
-    }
-
-    fn parseList(arena: *std.mem.Allocator, tokenizer: *Tokenizer) !SexprElem {
-        while (tokenizer.next()) |token| {
-            switch (token) {}
-        }
-
-        return error.ParseError;
-    }
 };
 
 test "Tokenizer" {
@@ -127,5 +148,41 @@ test "Tokenizer" {
         std.testing.expectEqualSlices(u8, "4", tokenizer.next().?.Literal);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
+    }
+}
+
+test "Sexpr.parse" {
+    {
+        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(a bc)");
+        defer sexpr.deinit();
+
+        std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
+        std.testing.expectEqualSlices(u8, "a", sexpr.root[0].Symbol);
+        std.testing.expectEqualSlices(u8, "bc", sexpr.root[1].Symbol);
+    }
+    {
+        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(() ())");
+        defer sexpr.deinit();
+
+        std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[1]);
+    }
+    {
+        var sexpr = try Sexpr.parse(std.heap.page_allocator, "( ( ( ())))");
+        defer sexpr.deinit();
+
+        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0].List[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0].List[0].List[0]);
+    }
+    {
+        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(block  ;; label = @1\n  local.get 4)");
+        defer sexpr.deinit();
+
+        std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
+        std.testing.expectEqualSlices(u8, "block", sexpr.root[0].Symbol);
+        std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].Symbol);
+        std.testing.expectEqualSlices(u8, "4", sexpr.root[2].Symbol);
     }
 }
