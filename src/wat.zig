@@ -6,8 +6,9 @@ const Sexpr = struct {
     root: []Elem,
 
     const Elem = union(enum) {
-        List: []Elem,
-        Symbol: []const u8,
+        list: []Elem,
+        symbol: []const u8,
+        number: usize,
     };
 
     const Token = union(enum) {
@@ -48,12 +49,19 @@ const Sexpr = struct {
     fn parseList(arena: *std.mem.Allocator, tokenizer: *Tokenizer) error{
         OutOfMemory,
         ParseError,
+        Overflow,
+        InvalidCharacter,
     }![]Elem {
         var list = std.ArrayList(Elem).init(arena);
         while (tokenizer.next()) |token| {
             switch (token) {
-                .OpenBrace => try list.append(.{ .List = try parseList(arena, tokenizer) }),
-                .Literal => |literal| try list.append(.{ .Symbol = literal }),
+                .OpenBrace => try list.append(.{ .list = try parseList(arena, tokenizer) }),
+                .Literal => |literal| {
+                    try list.append(switch (literal[0]) {
+                        '0'...'9' => .{ .number = try std.fmt.parseInt(usize, literal, 10) },
+                        else => .{ .symbol = literal },
+                    });
+                },
                 .CloseBrace => return list.toOwnedSlice(),
                 .Newline => {},
                 .SemicolonSemicolon => {
@@ -154,37 +162,38 @@ test "Tokenizer" {
 
 test "Sexpr.parse" {
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(a bc)");
+        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(a bc 42)");
         defer sexpr.deinit();
 
-        std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
-        std.testing.expectEqualSlices(u8, "a", sexpr.root[0].Symbol);
-        std.testing.expectEqualSlices(u8, "bc", sexpr.root[1].Symbol);
+        std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
+        std.testing.expectEqualSlices(u8, "a", sexpr.root[0].symbol);
+        std.testing.expectEqualSlices(u8, "bc", sexpr.root[1].symbol);
+        std.testing.expectEqual(@as(usize, 42), sexpr.root[2].number);
     }
     {
         var sexpr = try Sexpr.parse(std.heap.page_allocator, "(() ())");
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[1]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[1]);
     }
     {
         var sexpr = try Sexpr.parse(std.heap.page_allocator, "( ( ( ())))");
         defer sexpr.deinit();
 
-        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0].List[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).List, sexpr.root[0].List[0].List[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0].list[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0].list[0].list[0]);
     }
     {
         var sexpr = try Sexpr.parse(std.heap.page_allocator, "(block  ;; label = @1\n  local.get 4)");
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
-        std.testing.expectEqualSlices(u8, "block", sexpr.root[0].Symbol);
-        std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].Symbol);
-        std.testing.expectEqualSlices(u8, "4", sexpr.root[2].Symbol);
+        std.testing.expectEqualSlices(u8, "block", sexpr.root[0].symbol);
+        std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].symbol);
+        std.testing.expectEqual(@as(usize, 4), sexpr.root[2].number);
     }
 }
 
@@ -203,7 +212,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
         return error.ParseError;
     }
 
-    if (!std.mem.eql(u8, sexpr.root[0].Symbol, "module")) {
+    if (!std.mem.eql(u8, sexpr.root[0].symbol, "module")) {
         return error.ParseError;
     }
 
@@ -220,23 +229,23 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
 
 fn parseNode(arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
     switch (elem) {
-        .Symbol => return error.ParseError,
-        .List => |list| {
+        .symbol, .number => return error.ParseError,
+        .list => |list| {
             if (list.len == 0) {
                 return error.ParseError;
             }
 
-            if (list[0] != .Symbol) {
+            if (list[0] != .symbol) {
                 return error.ParseError;
             }
 
-            if (std.mem.eql(u8, list[0].Symbol, "memory")) {
+            if (std.mem.eql(u8, list[0].symbol, "memory")) {
                 if (list.len != 2) {
                     return error.ParseError;
                 }
 
                 return core.Module.Node{
-                    .memory = 42,
+                    .memory = list[1].number,
                 };
             }
         },
