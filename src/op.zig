@@ -22,6 +22,7 @@ pub const Type = enum {
 const Meta = struct {
     code: u8,
     name: []const u8,
+    arg_bytes: u8,
     push: ?Type,
     pop: [2]?Type,
 
@@ -37,8 +38,8 @@ const Meta = struct {
             context,
             Errors,
             output,
-            "Op( 0x{x} {} [{},{}] -> [{}] )",
-            .{ self.code, self.name, self.pop[0], self.pop[1], self.push },
+            "Op( 0x{x} \"{}\" +{}b [{},{}] -> [{}] )",
+            .{ self.code, self.name, self.arg_bytes, self.pop[0], self.pop[1], self.push },
         );
     }
 };
@@ -59,6 +60,7 @@ pub const sparse = blk: {
         result[i] = .{
             .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
             .name = decl.name[5..],
+            .arg_bytes = @sizeOf(arg_arg.arg_type.?),
             .push = Type.fromRaw(decl.data.Fn.return_type),
             .pop = switch (@typeInfo(arg_pop.arg_type.?)) {
                 .Void, .Int, .Float => .{ Type.fromRaw(arg_pop.arg_type.?), null },
@@ -71,7 +73,7 @@ pub const sparse = blk: {
 };
 
 pub const all = blk: {
-    const uninit = Meta{ .code = 0xAA, .name = "ILLEGAL", .pop = .{ null, null }, .push = null };
+    const uninit = Meta{ .code = 0xAA, .name = "ILLEGAL", .arg_bytes = 0, .pop = .{ null, null }, .push = null };
     var result = [_]Meta{uninit} ** 256;
     for (result) |*meta, i| {
         meta.code = i;
@@ -84,7 +86,7 @@ pub const all = blk: {
 };
 
 pub fn byName(needle: []const u8) ?Meta {
-    for (all) |meta| {
+    for (sparse) |meta| {
         if (std.mem.eql(u8, meta.name, needle)) {
             return meta;
         }
@@ -108,11 +110,13 @@ fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {
 
 test "ops" {
     const nop = byName("nop").?;
+    std.testing.expectEqual(nop.arg_bytes, 0);
     std.testing.expectEqual(nop.push, null);
     std.testing.expectEqual(nop.pop[0], null);
     std.testing.expectEqual(nop.pop[1], null);
 
     const i32_load = byName("i32.load").?;
+    std.testing.expectEqual(i32_load.arg_bytes, 8);
     std.testing.expectEqual(i32_load.push, Type.I32);
     std.testing.expectEqual(i32_load.pop[0], Type.I32);
     std.testing.expectEqual(i32_load.pop[1], null);
@@ -120,6 +124,7 @@ test "ops" {
 
 const Impl = struct {
     const Context = struct {};
+
     pub fn @"0x00 unreachable"(ctx: Context, arg: void, pop: void) void {}
 
     pub fn @"0x01 nop"(ctx: Context, arg: void, pop: void) void {}
