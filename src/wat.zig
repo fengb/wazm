@@ -251,7 +251,10 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
 
     var list = std.ArrayList(core.Module.Node).init(&arena.allocator);
     for (sexpr.root[1..]) |elem| {
-        try list.append(try parseNode(&arena.allocator, elem));
+        if (elem != .list) {
+            return error.ParseError;
+        }
+        try list.append(try parseNode(&arena.allocator, elem.list));
     }
 
     return core.Module{
@@ -260,10 +263,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     };
 }
 
-fn parseNode(arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
-    if (elem != .list) return error.ParseError;
-
-    const list = elem.list;
+fn parseNode(arena: *std.mem.Allocator, list: []Sexpr.Elem) !core.Module.Node {
     if (list.len == 0) {
         return error.ParseError;
     }
@@ -280,9 +280,62 @@ fn parseNode(arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
         return core.Module.Node{
             .memory = list[1].integer,
         };
+    } else if (std.mem.eql(u8, list[0].keyword, "func")) {
+        var params = std.ArrayList(core.Module.Type).init(arena);
+        var locals = std.ArrayList(core.Module.Type).init(arena);
+        var result: ?core.Module.Type = null;
+
+        var i: usize = 1;
+        while (i < list.len and list[i] == .list) : (i += 1) {
+            const pair = list[i].list;
+            if (pair.len != 2) {
+                return error.ParseError;
+            }
+            if (pair[1] != .keyword) {
+                return error.ParseError;
+            }
+            const typ = if (std.mem.eql(u8, pair[1].keyword, "i32"))
+                core.Module.Type.I32
+            else if (std.mem.eql(u8, pair[1].keyword, "i64"))
+                core.Module.Type.I64
+            else if (std.mem.eql(u8, pair[1].keyword, "f32"))
+                core.Module.Type.F32
+            else if (std.mem.eql(u8, pair[1].keyword, "f64"))
+                core.Module.Type.F64
+            else
+                return error.ParseError;
+
+            if (pair[0] != .keyword) {
+                return error.ParseError;
+            }
+            if (std.mem.eql(u8, pair[0].keyword, "param")) {
+                try params.append(typ);
+            } else if (std.mem.eql(u8, pair[0].keyword, "local")) {
+                try locals.append(typ);
+            } else if (std.mem.eql(u8, pair[0].keyword, "result")) {
+                result = typ;
+            } else {
+                return error.ParseError;
+            }
+        }
+
+        var instrs = std.ArrayList(core.Module.Instr).init(arena);
+        while (i < list.len) : (i += 1) {
+            // parse instructions
+        }
+
+        return core.Module.Node{
+            .func = .{
+                .name = null,
+                .params = params.toOwnedSlice(),
+                .result = result,
+                .locals = locals.toOwnedSlice(),
+                .instrs = instrs.toOwnedSlice(),
+            },
+        };
     }
 
-    @panic("Nope");
+    return error.ParseError;
 }
 
 test "parse" {
@@ -298,5 +351,30 @@ test "parse" {
 
         std.testing.expectEqual(@as(usize, 1), module.nodes.len);
         std.testing.expectEqual(@as(usize, 42), module.nodes[0].memory);
+    }
+}
+
+test "parseNode" {
+    {
+        var sexpr = try Sexpr.parse(std.heap.page_allocator,
+            \\(func (param i32) (param f32) (result i64) (local f64)
+            \\  local.get 0
+            \\  local.get 1
+            \\  local.get 2)
+        );
+        defer sexpr.deinit();
+
+        var node = try parseNode(&sexpr.arena.allocator, sexpr.root);
+        std.testing.expectEqual(@TagType(core.Module.Node).func, node);
+        std.testing.expectEqual(@as(?[]const u8, null), node.func.name);
+
+        std.testing.expectEqual(@as(usize, 2), node.func.params.len);
+        std.testing.expectEqual(core.Module.Type.I32, node.func.params[0]);
+        std.testing.expectEqual(core.Module.Type.F32, node.func.params[1]);
+
+        std.testing.expectEqual(@as(usize, 1), node.func.locals.len);
+        std.testing.expectEqual(core.Module.Type.F64, node.func.locals[0]);
+
+        std.testing.expectEqual(core.Module.Type.I64, node.func.result.?);
     }
 }

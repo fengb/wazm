@@ -30,7 +30,7 @@ pub const Module = struct {
     };
 
     pub const Func = struct {
-        name: []const u8,
+        name: ?[]const u8,
         params: []Type,
         result: ?Type,
         locals: []Type,
