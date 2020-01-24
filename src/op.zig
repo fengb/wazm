@@ -26,6 +26,10 @@ const Meta = struct {
     push: ?Type,
     pop: [2]?Type,
 
+    fn lessThan(lhs: Meta, rhs: Meta) bool {
+        return std.mem.lessThan(u8, lhs.name, rhs.name);
+    }
+
     pub fn format(
         self: Meta,
         comptime fmt: []const u8,
@@ -69,6 +73,8 @@ pub const sparse = blk: {
         };
     }
 
+    std.sort.sort(Meta, &result, Meta.lessThan);
+
     break :blk result;
 };
 
@@ -86,9 +92,17 @@ pub const all = blk: {
 };
 
 pub fn byName(needle: []const u8) ?Meta {
-    for (sparse) |meta| {
-        if (std.mem.eql(u8, meta.name, needle)) {
-            return meta;
+    var curr: usize = 0;
+    var size = sparse.len;
+    while (size > 0) {
+        const offset = size % 2;
+
+        size /= 2;
+        const meta = sparse[curr + size];
+        switch (std.mem.order(u8, needle, meta.name)) {
+            .lt => {},
+            .eq => return meta,
+            .gt => curr += size + offset,
         }
     }
     return null;
