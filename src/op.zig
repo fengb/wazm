@@ -8,7 +8,7 @@ pub const StackChange = enum {
     F32,
     F64,
 
-    fn fromRaw(comptime T: type) StackChange {
+    fn from(comptime T: type) StackChange {
         return switch (T) {
             void => .Void,
             i32 => .I32,
@@ -56,6 +56,24 @@ pub const Arg = packed union {
         align_: u32,
     };
 };
+pub const ArgKind = enum {
+    None,
+    Type,
+    I32,
+    I32z,
+    Mem,
+
+    fn from(comptime T: type) ArgKind {
+        return switch (T) {
+            Arg.None => .None,
+            Arg.Type => .Type,
+            Arg.I32 => .I32,
+            Arg.I32z => .I32z,
+            Arg.Mem => .Mem,
+            else => @compileError("Unsupported type: " ++ @typeName(T)),
+        };
+    }
+};
 
 test "Arg smoke" {
     const size = @sizeOf(Arg);
@@ -70,7 +88,10 @@ test "Arg smoke" {
 const Meta = struct {
     code: u8,
     name: []const u8,
-    arg_bytes: u8,
+    arg: struct {
+        kind: ArgKind,
+        bytes: u8,
+    },
     push: StackChange,
     pop: [2]StackChange,
 
@@ -90,8 +111,8 @@ const Meta = struct {
             context,
             Errors,
             output,
-            "Op( 0x{x} \"{}\" +{}b [{},{}] -> [{}] )",
-            .{ self.code, self.name, self.arg_bytes, self.pop[0], self.pop[1], self.push },
+            "Op( 0x{x} \"{}\" {{{} {}b}} [{},{}]->[{}] )",
+            .{ self.code, self.name, @tagName(self.arg.kind), self.arg.bytes, @tagName(self.pop[0]), @tagName(self.pop[1]), @tagName(self.push) },
         );
     }
 };
@@ -112,10 +133,10 @@ pub const sparse = blk: {
         result[i] = .{
             .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
             .name = decl.name[5..],
-            .arg_bytes = arg_type.bytes,
-            .push = StackChange.fromRaw(decl.data.Fn.return_type),
+            .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
+            .push = StackChange.from(decl.data.Fn.return_type),
             .pop = switch (@typeInfo(pop_type)) {
-                .Void, .Int, .Float => .{ StackChange.fromRaw(pop_type), .Void },
+                .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
                 else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
             },
         };
@@ -127,7 +148,13 @@ pub const sparse = blk: {
 };
 
 pub const all = blk: {
-    const uninit = Meta{ .code = 0xAA, .name = "ILLEGAL", .arg_bytes = 0, .pop = .{ .Void, .Void }, .push = .Void };
+    const uninit = Meta{
+        .code = 0xAA,
+        .name = "ILLEGAL",
+        .arg = .{ .bytes = 0, .kind = .Void },
+        .pop = .{ .Void, .Void },
+        .push = .Void,
+    };
     var result = [_]Meta{uninit} ** 256;
     for (result) |*meta, i| {
         meta.code = i;
@@ -172,13 +199,13 @@ fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {
 
 test "ops" {
     const nop = byName("nop").?;
-    std.testing.expectEqual(nop.arg_bytes, 0);
+    std.testing.expectEqual(nop.arg.bytes, 0);
     std.testing.expectEqual(nop.push, .Void);
     std.testing.expectEqual(nop.pop[0], .Void);
     std.testing.expectEqual(nop.pop[1], .Void);
 
     const i32_load = byName("i32.load").?;
-    std.testing.expectEqual(i32_load.arg_bytes, 8);
+    std.testing.expectEqual(i32_load.arg.bytes, 8);
     std.testing.expectEqual(i32_load.push, .I32);
     std.testing.expectEqual(i32_load.pop[0], .I32);
     std.testing.expectEqual(i32_load.pop[1], .Void);
