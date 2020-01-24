@@ -14,7 +14,7 @@ pub const Type = enum {
             f32 => Type.F32,
             f64 => Type.F64,
             void => null,
-            else => @compileError(@typeName(T) ++ " not supported"),
+            else => @compileError("Unsupported type:" ++ @typeName(T)),
         };
     }
 };
@@ -51,16 +51,19 @@ pub const sparse = blk: {
         std.debug.assert(decl.name[1] == 'x');
         std.debug.assert(decl.name[4] == ' ');
 
-        //const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
-        //const argCtx = args[0];
-        //const argArg = args[1];
-        //const argPop = args[2];
+        const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
+        const arg_ctx = args[0];
+        const arg_arg = args[1];
+        const arg_pop = args[2];
 
         result[i] = .{
             .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
             .name = decl.name[5..],
             .push = Type.fromRaw(decl.data.Fn.return_type),
-            .pop = undefined,
+            .pop = switch (@typeInfo(arg_pop.arg_type.?)) {
+                .Void, .Int, .Float => .{ Type.fromRaw(arg_pop.arg_type.?), null },
+                else => @compileError("Unsupported pop type: " ++ @typeName(arg_pop.arg_type.?)),
+            },
         };
     }
 
@@ -104,8 +107,15 @@ fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {
 }
 
 test "ops" {
-    std.testing.expectEqual(byName("nop").?.push, null);
-    std.testing.expectEqual(byName("i32.load").?.push, Type.I32);
+    const nop = byName("nop").?;
+    std.testing.expectEqual(nop.push, null);
+    std.testing.expectEqual(nop.pop[0], null);
+    std.testing.expectEqual(nop.pop[1], null);
+
+    const i32_load = byName("i32.load").?;
+    std.testing.expectEqual(i32_load.push, Type.I32);
+    std.testing.expectEqual(i32_load.pop[0], Type.I32);
+    std.testing.expectEqual(i32_load.pop[1], null);
 }
 
 const Impl = struct {
