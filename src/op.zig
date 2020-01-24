@@ -31,6 +31,7 @@ pub const Arg = packed union {
         const bytes = 0;
         _pad: u64,
     };
+    // TODO: this only works in LittleEndian
     pub const Type = enum(u64) {
         const bytes = 1;
         Void = 0x40,
@@ -55,6 +56,16 @@ pub const Arg = packed union {
         align_: u32,
     };
 };
+
+test "Arg smoke" {
+    const size = @sizeOf(Arg);
+    inline for (std.meta.declarations(Arg)) |decl| {
+        if (decl.data == .Type) {
+            _ = decl.data.Type.bytes;
+            std.testing.expectEqual(size, @sizeOf(decl.data.Type));
+        }
+    }
+}
 
 const Meta = struct {
     code: u8,
@@ -94,18 +105,18 @@ pub const sparse = blk: {
         std.debug.assert(decl.name[4] == ' ');
 
         const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
-        const arg_ctx = args[0];
-        const arg_arg = args[1];
-        const arg_pop = args[2];
+        const ctx_type = args[0].arg_type.?;
+        const arg_type = args[1].arg_type.?;
+        const pop_type = args[2].arg_type.?;
 
         result[i] = .{
             .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
             .name = decl.name[5..],
-            .arg_bytes = arg_arg.arg_type.?.bytes,
+            .arg_bytes = arg_type.bytes,
             .push = StackChange.fromRaw(decl.data.Fn.return_type),
-            .pop = switch (@typeInfo(arg_pop.arg_type.?)) {
-                .Void, .Int, .Float => .{ StackChange.fromRaw(arg_pop.arg_type.?), .Void },
-                else => @compileError("Unsupported pop type: " ++ @typeName(arg_pop.arg_type.?)),
+            .pop = switch (@typeInfo(pop_type)) {
+                .Void, .Int, .Float => .{ StackChange.fromRaw(pop_type), .Void },
+                else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
             },
         };
     }
