@@ -4,12 +4,15 @@ const core = @import("core.zig");
 const Op = @import("op.zig");
 
 const ParseContext = struct {
-    allocator: *std.mem.Allocator,
     string: []const u8,
     err: ?struct {
         location: usize,
         message: ?[]const u8,
-    } = null,
+    },
+
+    pub fn init(string: []const u8) ParseContext {
+        return .{ .string = string, .err = null };
+    }
 
     pub fn format(
         self: ParseContext,
@@ -109,12 +112,12 @@ const Sexpr = struct {
         self.arena.deinit();
     }
 
-    pub fn parse(ctx: *ParseContext) !Sexpr {
-        const arena = try ctx.allocator.create(std.heap.ArenaAllocator);
-        arena.* = std.heap.ArenaAllocator.init(ctx.allocator);
+    pub fn parse(ctx: *ParseContext, allocator: *std.mem.Allocator) !Sexpr {
+        const arena = try allocator.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(allocator);
         errdefer {
             arena.deinit();
-            ctx.allocator.destroy(arena);
+            allocator.destroy(arena);
         }
 
         var tokenizer = Tokenizer.init(ctx.string);
@@ -280,7 +283,7 @@ test "Tokenizer" {
 
 test "Sexpr.parse" {
     {
-        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(a bc 42)", .allocator = std.heap.page_allocator });
+        var sexpr = try Sexpr.parse(&ParseContext.init("(a bc 42)"), std.heap.page_allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -289,7 +292,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@as(usize, 42), sexpr.root[2].data.integer);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(() ())", .allocator = std.heap.page_allocator });
+        var sexpr = try Sexpr.parse(&ParseContext.init("(() ())"), std.heap.page_allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
@@ -297,7 +300,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[1].data);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext{ .string = "( ( ( ())))", .allocator = std.heap.page_allocator });
+        var sexpr = try Sexpr.parse(&ParseContext.init("( ( ( ())))"), std.heap.page_allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data);
@@ -305,7 +308,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data.list[0].data.list[0].data);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(block  ;; label = @1\n  local.get 4)", .allocator = std.heap.page_allocator });
+        var sexpr = try Sexpr.parse(&ParseContext.init("(block  ;; label = @1\n  local.get 4)"), std.heap.page_allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -316,8 +319,8 @@ test "Sexpr.parse" {
 }
 
 pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
-    var ctx = ParseContext{ .string = string, .allocator = allocator };
-    var sexpr = try Sexpr.parse(&ctx);
+    var ctx = ParseContext.init(string);
+    var sexpr = try Sexpr.parse(&ctx, allocator);
     defer sexpr.deinit();
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -465,15 +468,13 @@ test "parse" {
 
 test "parseNode" {
     {
-        var ctx = ParseContext{
-            .allocator = std.heap.page_allocator,
-            .string =
-                \\(func (param i32) (param f32) (result i64) (local f64)
-                \\  local.get 0
-                \\  local.get 1
-                \\  local.get 2)
-                    };
-        var sexpr = try Sexpr.parse(&ctx);
+        var ctx = ParseContext.init(
+            \\(func (param i32) (param f32) (result i64) (local f64)
+            \\  local.get 0
+            \\  local.get 1
+            \\  local.get 2)
+        );
+        var sexpr = try Sexpr.parse(&ctx, std.heap.page_allocator);
         defer sexpr.deinit();
 
         const wrapped = Sexpr.Elem{
