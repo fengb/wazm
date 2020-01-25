@@ -166,7 +166,7 @@ pub const all = blk: {
     break :blk result;
 };
 
-pub fn byName(needle: []const u8) !Meta {
+pub fn byName(needle: []const u8) ?Meta {
     var curr: usize = 0;
     var size = sparse.len;
     while (size > 0) {
@@ -180,7 +180,7 @@ pub fn byName(needle: []const u8) !Meta {
             .gt => curr += size + offset,
         }
     }
-    return error.OpNotFound;
+    return null;
 }
 
 fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {
@@ -198,13 +198,13 @@ fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {
 }
 
 test "ops" {
-    const nop = try byName("nop");
+    const nop = byName("nop").?;
     std.testing.expectEqual(nop.arg.bytes, 0);
     std.testing.expectEqual(nop.push, .Void);
     std.testing.expectEqual(nop.pop[0], .Void);
     std.testing.expectEqual(nop.pop[1], .Void);
 
-    const i32_load = try byName("i32.load");
+    const i32_load = byName("i32.load").?;
     std.testing.expectEqual(i32_load.arg.bytes, 8);
     std.testing.expectEqual(i32_load.push, .I32);
     std.testing.expectEqual(i32_load.pop[0], .I32);

@@ -67,13 +67,18 @@ const Sexpr = struct {
     arena: *std.heap.ArenaAllocator,
     root: []Elem,
 
-    const Elem = union(enum) {
-        list: []Elem,
-        keyword: []const u8,
-        id: []const u8,
-        string: []const u8,
-        integer: usize,
-        float: f64,
+    const Elem = struct {
+        token: Token,
+        data: Data,
+
+        const Data = union(enum) {
+            list: []Elem,
+            keyword: []const u8,
+            id: []const u8,
+            string: []const u8,
+            integer: usize,
+            float: f64,
+        };
     };
 
     const Token = struct {
@@ -134,14 +139,20 @@ const Sexpr = struct {
         var list = std.ArrayList(Elem).init(arena);
         while (tokenizer.next()) |token| {
             switch (token.kind) {
-                .OpenParen => try list.append(.{ .list = try parseList(ctx, arena, tokenizer) }),
+                .OpenParen => try list.append(.{
+                    .token = token,
+                    .data = .{ .list = try parseList(ctx, arena, tokenizer) },
+                }),
                 .Literal => {
-                    try list.append(switch (token.raw[0]) {
-                        '"' => .{ .string = token.raw },
-                        '$' => .{ .id = token.raw },
-                        '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, token.raw, 10) },
-                        'a'...'z' => .{ .keyword = token.raw },
-                        else => return ctx.fail(token.source),
+                    try list.append(.{
+                        .token = token,
+                        .data = switch (token.raw[0]) {
+                            '"' => .{ .string = token.raw },
+                            '$' => .{ .id = token.raw },
+                            '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, token.raw, 10) },
+                            'a'...'z' => .{ .keyword = token.raw },
+                            else => return ctx.fail(token.source),
+                        },
                     });
                 },
                 .CloseParen => return list.toOwnedSlice(),
@@ -273,39 +284,40 @@ test "Sexpr.parse" {
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
-        std.testing.expectEqualSlices(u8, "a", sexpr.root[0].keyword);
-        std.testing.expectEqualSlices(u8, "bc", sexpr.root[1].keyword);
-        std.testing.expectEqual(@as(usize, 42), sexpr.root[2].integer);
+        std.testing.expectEqualSlices(u8, "a", sexpr.root[0].data.keyword);
+        std.testing.expectEqualSlices(u8, "bc", sexpr.root[1].data.keyword);
+        std.testing.expectEqual(@as(usize, 42), sexpr.root[2].data.integer);
     }
     {
         var sexpr = try Sexpr.parse(&ParseContext{ .string = "(() ())", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[1]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data);
+        std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[1].data);
     }
     {
         var sexpr = try Sexpr.parse(&ParseContext{ .string = "( ( ( ())))", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
-        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0].list[0]);
-        std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0].list[0].list[0]);
+        std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data);
+        std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data.list[0].data);
+        std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data.list[0].data.list[0].data);
     }
     {
         var sexpr = try Sexpr.parse(&ParseContext{ .string = "(block  ;; label = @1\n  local.get 4)", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
-        std.testing.expectEqualSlices(u8, "block", sexpr.root[0].keyword);
-        std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].keyword);
-        std.testing.expectEqual(@as(usize, 4), sexpr.root[2].integer);
+        std.testing.expectEqualSlices(u8, "block", sexpr.root[0].data.keyword);
+        std.testing.expectEqualSlices(u8, "local.get", sexpr.root[1].data.keyword);
+        std.testing.expectEqual(@as(usize, 4), sexpr.root[2].data.integer);
     }
 }
 
 pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
-    var sexpr = try Sexpr.parse(&ParseContext{ .string = string, .allocator = allocator });
+    var ctx = ParseContext{ .string = string, .allocator = allocator };
+    var sexpr = try Sexpr.parse(&ctx);
     defer sexpr.deinit();
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -315,20 +327,12 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
         allocator.destroy(arena);
     }
 
-    if (sexpr.root.len == 0) {
-        return error.ParseError;
-    }
-
-    if (!std.mem.eql(u8, sexpr.root[0].keyword, "module")) {
-        return error.ParseError;
-    }
+    try ctx.validate(sexpr.root.len > 0, ctx.eof());
+    try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
 
     var list = std.ArrayList(core.Module.Node).init(&arena.allocator);
     for (sexpr.root[1..]) |elem| {
-        if (elem != .list) {
-            return error.ParseError;
-        }
-        try list.append(try parseNode(&arena.allocator, elem.list));
+        try list.append(try parseNode(&ctx, &arena.allocator, elem));
     }
 
     return core.Module{
@@ -337,68 +341,60 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     };
 }
 
-fn parseNode(arena: *std.mem.Allocator, list: []Sexpr.Elem) !core.Module.Node {
-    if (list.len == 0) {
-        return error.ParseError;
-    }
+fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
+    try ctx.validate(elem.data == .list, elem.token.source);
 
-    if (list[0] != .keyword) {
-        return error.ParseError;
-    }
+    const list = elem.data.list;
+    try ctx.validate(list.len > 0, elem.token.source);
+    try ctx.validate(list[0].data == .keyword, list[0].token.source);
 
-    if (std.mem.eql(u8, list[0].keyword, "memory")) {
-        if (list.len != 2) {
-            return error.ParseError;
-        }
+    if (std.mem.eql(u8, list[0].data.keyword, "memory")) {
+        try ctx.validate(list.len == 2, elem.token.source);
+        try ctx.validate(list[1].data == .integer, list[1].token.source);
 
         return core.Module.Node{
-            .memory = list[1].integer,
+            .memory = list[1].data.integer,
         };
-    } else if (std.mem.eql(u8, list[0].keyword, "func")) {
+    } else if (std.mem.eql(u8, list[0].data.keyword, "func")) {
         var params = std.ArrayList(core.Module.Type).init(arena);
         var locals = std.ArrayList(core.Module.Type).init(arena);
         var result: ?core.Module.Type = null;
 
         var i: usize = 1;
-        while (i < list.len and list[i] == .list) : (i += 1) {
-            const pair = list[i].list;
-            if (pair.len != 2) {
-                return error.ParseError;
-            }
-            if (pair[1] != .keyword) {
-                return error.ParseError;
-            }
-            const typ = if (std.mem.eql(u8, pair[1].keyword, "i32"))
+        while (i < list.len and list[i].data == .list) : (i += 1) {
+            const pair = list[i].data.list;
+            try ctx.validate(pair.len == 2, list[i].token.source);
+            try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
+            const typ = if (std.mem.eql(u8, pair[1].data.keyword, "i32"))
                 core.Module.Type.I32
-            else if (std.mem.eql(u8, pair[1].keyword, "i64"))
+            else if (std.mem.eql(u8, pair[1].data.keyword, "i64"))
                 core.Module.Type.I64
-            else if (std.mem.eql(u8, pair[1].keyword, "f32"))
+            else if (std.mem.eql(u8, pair[1].data.keyword, "f32"))
                 core.Module.Type.F32
-            else if (std.mem.eql(u8, pair[1].keyword, "f64"))
+            else if (std.mem.eql(u8, pair[1].data.keyword, "f64"))
                 core.Module.Type.F64
             else
-                return error.ParseError;
+                return ctx.fail(pair[1].token.source);
 
-            if (pair[0] != .keyword) {
-                return error.ParseError;
-            }
-            if (std.mem.eql(u8, pair[0].keyword, "param")) {
+            try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
+            if (std.mem.eql(u8, pair[0].data.keyword, "param")) {
                 try params.append(typ);
-            } else if (std.mem.eql(u8, pair[0].keyword, "local")) {
+            } else if (std.mem.eql(u8, pair[0].data.keyword, "local")) {
                 try locals.append(typ);
-            } else if (std.mem.eql(u8, pair[0].keyword, "result")) {
+            } else if (std.mem.eql(u8, pair[0].data.keyword, "result")) {
                 result = typ;
             } else {
-                return error.ParseError;
+                return ctx.fail(pair[0].token.source);
             }
         }
 
         var instrs = std.ArrayList(core.Module.Instr).init(arena);
         while (i < list.len) : (i += 1) {
-            if (list[i] != .keyword) {
-                return error.ParseError;
-            }
-            const op = try Op.byName(list[i].keyword);
+            try ctx.validate(list[i].data == .keyword, list[i].token.source);
+
+            const op = Op.byName(list[i].data.keyword) orelse {
+                return ctx.fail(list[i].token.source);
+            };
             const arg = if (op.arg.kind == .None)
                 Op.Arg{ ._pad = 0 }
             else blk: {
@@ -407,34 +403,30 @@ fn parseNode(arena: *std.mem.Allocator, list: []Sexpr.Elem) !core.Module.Node {
                 switch (op.arg.kind) {
                     .None => unreachable,
                     .Type => {
-                        if (next != .keyword) {
-                            return error.ParseError;
-                        }
-                        const t = if (std.mem.eql(u8, next.keyword, "void"))
+                        try ctx.validate(next.data == .keyword, next.token.source);
+                        const t = if (std.mem.eql(u8, next.data.keyword, "void"))
                             Op.Arg.Type.Void
-                        else if (std.mem.eql(u8, next.keyword, "i32"))
+                        else if (std.mem.eql(u8, next.data.keyword, "i32"))
                             Op.Arg.Type.I32
-                        else if (std.mem.eql(u8, next.keyword, "i64"))
+                        else if (std.mem.eql(u8, next.data.keyword, "i64"))
                             Op.Arg.Type.I64
-                        else if (std.mem.eql(u8, next.keyword, "f32"))
+                        else if (std.mem.eql(u8, next.data.keyword, "f32"))
                             Op.Arg.Type.F32
-                        else if (std.mem.eql(u8, next.keyword, "f64"))
+                        else if (std.mem.eql(u8, next.data.keyword, "f64"))
                             Op.Arg.Type.F64
                         else
-                            return error.ParseError;
+                            return ctx.fail(next.token.source);
 
                         break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
                     },
                     .I32 => {
-                        if (next != .integer) {
-                            return error.ParseError;
-                        }
+                        try ctx.validate(next.data == .integer, next.token.source);
                         var raw: [4]u8 = undefined;
-                        std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.integer));
+                        std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.data.integer));
                         break :blk Op.Arg{ .b4 = raw };
                     },
                     .I32z, .Mem => {
-                        @panic(list[i].keyword);
+                        @panic(list[i].data.keyword);
                     },
                 }
             };
@@ -450,9 +442,9 @@ fn parseNode(arena: *std.mem.Allocator, list: []Sexpr.Elem) !core.Module.Node {
                 .instrs = instrs.toOwnedSlice(),
             },
         };
+    } else {
+        return ctx.fail(list[0].token.source);
     }
-
-    return error.ParseError;
 }
 
 test "parse" {
@@ -473,17 +465,22 @@ test "parse" {
 
 test "parseNode" {
     {
-        var sexpr = try Sexpr.parse(&ParseContext{
+        var ctx = ParseContext{
             .allocator = std.heap.page_allocator,
             .string =
                 \\(func (param i32) (param f32) (result i64) (local f64)
                 \\  local.get 0
                 \\  local.get 1
                 \\  local.get 2)
-                    });
+                    };
+        var sexpr = try Sexpr.parse(&ctx);
         defer sexpr.deinit();
 
-        var node = try parseNode(&sexpr.arena.allocator, sexpr.root);
+        const wrapped = Sexpr.Elem{
+            .token = .{ .source = 0, .raw = "(", .kind = .OpenParen },
+            .data = .{ .list = sexpr.root },
+        };
+        var node = try parseNode(&ctx, &sexpr.arena.allocator, wrapped);
         std.testing.expectEqual(@TagType(core.Module.Node).func, node);
         std.testing.expectEqual(@as(?[]const u8, null), node.func.name);
 
