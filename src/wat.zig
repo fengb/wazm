@@ -136,8 +136,6 @@ const Sexpr = struct {
     fn parseList(ctx: *ParseContext, arena: *std.mem.Allocator, tokenizer: *Tokenizer) error{
         OutOfMemory,
         ParseError,
-        Overflow,
-        InvalidCharacter,
     }![]Elem {
         var list = std.ArrayList(Elem).init(arena);
         while (tokenizer.next()) |token| {
@@ -152,8 +150,12 @@ const Sexpr = struct {
                         .data = switch (token.raw[0]) {
                             '"' => .{ .string = token.raw },
                             '$' => .{ .id = token.raw },
-                            '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, token.raw, 10) },
                             'a'...'z' => .{ .keyword = token.raw },
+                            '+', '-', '0'...'9' => .{
+                                .integer = std.fmt.parseInt(usize, token.raw, 10) catch {
+                                    return ctx.fail(token.source);
+                                },
+                            },
                             else => return ctx.fail(token.source),
                         },
                     });
@@ -166,7 +168,7 @@ const Sexpr = struct {
                             break;
                         }
                     }
-                    try ctx.validate(false, token.source);
+                    return ctx.fail(token.source);
                 },
                 .SemicolonCloseParen => return ctx.fail(token.source),
                 .SemicolonSemicolon => {
