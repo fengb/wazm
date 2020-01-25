@@ -38,7 +38,7 @@ pub const Module = struct {
     };
 
     pub const Instr = struct {
-        op: u8,
+        opcode: u8,
         arg: Op.Arg,
     };
 };

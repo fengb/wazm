@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("core.zig");
+const Op = @import("op.zig");
 
 const Sexpr = struct {
     arena: *std.heap.ArenaAllocator,
@@ -321,7 +322,50 @@ fn parseNode(arena: *std.mem.Allocator, list: []Sexpr.Elem) !core.Module.Node {
 
         var instrs = std.ArrayList(core.Module.Instr).init(arena);
         while (i < list.len) : (i += 1) {
-            // parse instructions
+            if (list[i] != .keyword) {
+                return error.ParseError;
+            }
+            const op = try Op.byName(list[i].keyword);
+            const arg = if (op.arg.kind == .None)
+                Op.Arg{ ._pad = 0 }
+            else blk: {
+                i += 1;
+                const next = list[i];
+                switch (op.arg.kind) {
+                    .None => unreachable,
+                    .Type => {
+                        if (next != .keyword) {
+                            return error.ParseError;
+                        }
+                        const t = if (std.mem.eql(u8, next.keyword, "void"))
+                            Op.Arg.Type.Void
+                        else if (std.mem.eql(u8, next.keyword, "i32"))
+                            Op.Arg.Type.I32
+                        else if (std.mem.eql(u8, next.keyword, "i64"))
+                            Op.Arg.Type.I64
+                        else if (std.mem.eql(u8, next.keyword, "f32"))
+                            Op.Arg.Type.F32
+                        else if (std.mem.eql(u8, next.keyword, "f64"))
+                            Op.Arg.Type.F64
+                        else
+                            return error.ParseError;
+
+                        break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
+                    },
+                    .I32 => {
+                        if (next != .integer) {
+                            return error.ParseError;
+                        }
+                        var raw: [4]u8 = undefined;
+                        std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.integer));
+                        break :blk Op.Arg{ .b4 = raw };
+                    },
+                    .I32z, .Mem => {
+                        @panic(list[i].keyword);
+                    },
+                }
+            };
+            try instrs.append(.{ .opcode = op.code, .arg = arg });
         }
 
         return core.Module.Node{
@@ -376,5 +420,7 @@ test "parseNode" {
         std.testing.expectEqual(core.Module.Type.F64, node.func.locals[0]);
 
         std.testing.expectEqual(core.Module.Type.I64, node.func.result.?);
+
+        std.testing.expectEqual(@as(usize, 3), node.func.instrs.len);
     }
 }
