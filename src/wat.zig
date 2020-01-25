@@ -1,6 +1,67 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const core = @import("core.zig");
 const Op = @import("op.zig");
+
+const ParseContext = struct {
+    allocator: *std.mem.Allocator,
+    string: []const u8,
+    err: ?struct {
+        location: usize,
+        message: ?[]const u8,
+    } = null,
+
+    pub fn format(
+        self: ParseContext,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
+    ) Errors!void {
+        if (self.err) |err| {
+            if (err.location >= self.string.len) {
+                try output(context, "ParseError @ EOF");
+            } else {
+                try std.fmt.format(context, Errors, output, "ParseError @ {}", .{err.location});
+            }
+            if (err.message) |msg| {
+                try output(context, ": '");
+                try output(context, msg);
+                try output(context, "'");
+            }
+
+            try output(context, "\n# ");
+            if (err.location >= self.string.len) {
+                const start = std.math.min(self.string.len -% 20, 0);
+                try output(context, self.string[start..]);
+                try output(context, "$");
+            } else {
+                try output(context, self.string[err.location..std.math.min(err.location + 20, self.string.len)]);
+                try output(context, "\n  ^");
+            }
+            try output(context, "\n");
+        }
+    }
+
+    fn eof(self: ParseContext) usize {
+        return self.string.len;
+    }
+
+    fn validate(self: *ParseContext, truthiness: bool, location: usize) !void {
+        if (!truthiness) {
+            return self.fail(location);
+        }
+    }
+
+    fn fail(self: *ParseContext, location: usize) error{ParseError} {
+        self.err = .{ .location = location, .message = null };
+        if (builtin.is_test) {
+            std.debug.warn("#Debug\n{}\n", .{self});
+        }
+        return error.ParseError;
+    }
+};
 
 const Sexpr = struct {
     arena: *std.heap.ArenaAllocator,
@@ -15,44 +76,56 @@ const Sexpr = struct {
         float: f64,
     };
 
-    const Token = union(enum) {
-        OpenParen: void,
-        CloseParen: void,
-        Newline: void,
-        OpenParenSemicolon: void,
-        SemicolonCloseParen: void,
-        SemicolonSemicolon: void,
-        Literal: []const u8,
+    const Token = struct {
+        source: usize,
+        raw: []const u8,
+        kind: Kind,
+
+        const Kind = enum {
+            OpenParen,
+            CloseParen,
+            Newline,
+            OpenParenSemicolon,
+            SemicolonCloseParen,
+            SemicolonSemicolon,
+            Literal,
+        };
+
+        fn init(kind: Kind, string: []const u8, start: usize, end: usize) Token {
+            return .{
+                .kind = kind,
+                .source = start,
+                .raw = string[start..end],
+            };
+        }
     };
 
     pub fn deinit(self: *Sexpr) void {
         self.arena.deinit();
     }
 
-    pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Sexpr {
-        const arena = try allocator.create(std.heap.ArenaAllocator);
-        arena.* = std.heap.ArenaAllocator.init(allocator);
+    pub fn parse(ctx: *ParseContext) !Sexpr {
+        const arena = try ctx.allocator.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(ctx.allocator);
         errdefer {
             arena.deinit();
-            allocator.destroy(arena);
+            ctx.allocator.destroy(arena);
         }
 
-        var tokenizer = Tokenizer.init(string);
-        if (tokenizer.next()) |token| {
-            if (token != .OpenParen) {
-                return error.ParseError;
-            }
+        var tokenizer = Tokenizer.init(ctx.string);
+        if (tokenizer.next()) |start| {
+            try ctx.validate(start.kind == .OpenParen, start.source);
         } else {
-            return error.ParseError;
+            return ctx.fail(ctx.eof());
         }
 
         return Sexpr{
             .arena = arena,
-            .root = try parseList(&arena.allocator, &tokenizer),
+            .root = try parseList(ctx, &arena.allocator, &tokenizer),
         };
     }
 
-    fn parseList(arena: *std.mem.Allocator, tokenizer: *Tokenizer) error{
+    fn parseList(ctx: *ParseContext, arena: *std.mem.Allocator, tokenizer: *Tokenizer) error{
         OutOfMemory,
         ParseError,
         Overflow,
@@ -60,31 +133,31 @@ const Sexpr = struct {
     }![]Elem {
         var list = std.ArrayList(Elem).init(arena);
         while (tokenizer.next()) |token| {
-            switch (token) {
-                .OpenParen => try list.append(.{ .list = try parseList(arena, tokenizer) }),
-                .Literal => |literal| {
-                    try list.append(switch (literal[0]) {
-                        '"' => .{ .string = literal },
-                        '$' => .{ .id = literal },
-                        '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, literal, 10) },
-                        'a'...'z' => .{ .keyword = literal },
-                        else => return error.ParseError,
+            switch (token.kind) {
+                .OpenParen => try list.append(.{ .list = try parseList(ctx, arena, tokenizer) }),
+                .Literal => {
+                    try list.append(switch (token.raw[0]) {
+                        '"' => .{ .string = token.raw },
+                        '$' => .{ .id = token.raw },
+                        '+', '-', '0'...'9' => .{ .integer = try std.fmt.parseInt(usize, token.raw, 10) },
+                        'a'...'z' => .{ .keyword = token.raw },
+                        else => return ctx.fail(token.source),
                     });
                 },
                 .CloseParen => return list.toOwnedSlice(),
                 .Newline => {},
                 .OpenParenSemicolon => {
                     while (tokenizer.next()) |comment| {
-                        if (comment == .SemicolonCloseParen) {
+                        if (comment.kind == .SemicolonCloseParen) {
                             break;
                         }
                     }
-                    return error.ParseError;
+                    try ctx.validate(false, token.source);
                 },
-                .SemicolonCloseParen => return error.ParseError,
+                .SemicolonCloseParen => return ctx.fail(token.source),
                 .SemicolonSemicolon => {
                     while (tokenizer.next()) |comment| {
-                        if (comment == .Newline) {
+                        if (comment.kind == .Newline) {
                             break;
                         }
                     }
@@ -92,7 +165,7 @@ const Sexpr = struct {
             }
         }
 
-        return error.ParseError;
+        return ctx.fail(ctx.eof());
     }
 
     const Tokenizer = struct {
@@ -115,22 +188,22 @@ const Sexpr = struct {
                 '(' => {
                     if (self.cursor <= self.raw.len and self.raw[self.cursor] == ';') {
                         self.cursor += 1;
-                        return Token{ .OpenParenSemicolon = {} };
+                        return Token.init(.OpenParenSemicolon, self.raw, start, self.cursor);
                     } else {
-                        return Token{ .OpenParen = {} };
+                        return Token.init(.OpenParen, self.raw, start, self.cursor);
                     }
                 },
-                ')' => return Token{ .CloseParen = {} },
-                '\n' => return Token{ .Newline = {} },
+                ')' => return Token.init(.CloseParen, self.raw, start, self.cursor),
+                '\n' => return Token.init(.Newline, self.raw, start, self.cursor),
                 ';' => {
                     if (self.cursor > self.raw.len) {
-                        return Token{ .Literal = ";" };
+                        return Token.init(.Literal, self.raw, start, self.cursor);
                     } else if (self.raw[self.cursor] == ';') {
                         self.cursor += 1;
-                        return Token{ .SemicolonSemicolon = {} };
+                        return Token.init(.SemicolonSemicolon, self.raw, start, self.cursor);
                     } else if (self.raw[self.cursor] == ')') {
                         self.cursor += 1;
-                        return Token{ .SemicolonCloseParen = {} };
+                        return Token.init(.SemicolonCloseParen, self.raw, start, self.cursor);
                     } else {
                         // "fallthrough"
                     }
@@ -145,7 +218,7 @@ const Sexpr = struct {
                 }
             }
 
-            return Token{ .Literal = self.raw[start..self.cursor] };
+            return Token.init(.Literal, self.raw, start, self.cursor);
         }
     };
 };
@@ -153,42 +226,42 @@ const Sexpr = struct {
 test "Tokenizer" {
     {
         var tokenizer = Sexpr.Tokenizer.init("(type (func (param i32 i32)");
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "type", tokenizer.next().?.Literal);
+        std.testing.expectEqual(Sexpr.Token.Kind.OpenParen, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "type", tokenizer.next().?.raw);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "func", tokenizer.next().?.Literal);
+        std.testing.expectEqual(Sexpr.Token.Kind.OpenParen, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "func", tokenizer.next().?.raw);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParen, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "param", tokenizer.next().?.Literal);
-        std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.Literal);
-        std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.Literal);
-        std.testing.expectEqual(@TagType(Sexpr.Token).CloseParen, tokenizer.next().?);
+        std.testing.expectEqual(Sexpr.Token.Kind.OpenParen, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "param", tokenizer.next().?.raw);
+        std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.raw);
+        std.testing.expectEqualSlices(u8, "i32", tokenizer.next().?.raw);
+        std.testing.expectEqual(Sexpr.Token.Kind.CloseParen, tokenizer.next().?.kind);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
     }
     {
         var tokenizer = Sexpr.Tokenizer.init("block  ;; label = @1\n  local.get 4");
-        std.testing.expectEqualSlices(u8, "block", tokenizer.next().?.Literal);
+        std.testing.expectEqualSlices(u8, "block", tokenizer.next().?.raw);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).SemicolonSemicolon, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "label", tokenizer.next().?.Literal);
-        std.testing.expectEqualSlices(u8, "=", tokenizer.next().?.Literal);
-        std.testing.expectEqualSlices(u8, "@1", tokenizer.next().?.Literal);
+        std.testing.expectEqual(Sexpr.Token.Kind.SemicolonSemicolon, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "label", tokenizer.next().?.raw);
+        std.testing.expectEqualSlices(u8, "=", tokenizer.next().?.raw);
+        std.testing.expectEqualSlices(u8, "@1", tokenizer.next().?.raw);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).Newline, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "local.get", tokenizer.next().?.Literal);
-        std.testing.expectEqualSlices(u8, "4", tokenizer.next().?.Literal);
+        std.testing.expectEqual(Sexpr.Token.Kind.Newline, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "local.get", tokenizer.next().?.raw);
+        std.testing.expectEqualSlices(u8, "4", tokenizer.next().?.raw);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
     }
     {
         var tokenizer = Sexpr.Tokenizer.init("foo (;0;)");
-        std.testing.expectEqualSlices(u8, "foo", tokenizer.next().?.Literal);
+        std.testing.expectEqualSlices(u8, "foo", tokenizer.next().?.raw);
 
-        std.testing.expectEqual(@TagType(Sexpr.Token).OpenParenSemicolon, tokenizer.next().?);
-        std.testing.expectEqualSlices(u8, "0", tokenizer.next().?.Literal);
-        std.testing.expectEqual(@TagType(Sexpr.Token).SemicolonCloseParen, tokenizer.next().?);
+        std.testing.expectEqual(Sexpr.Token.Kind.OpenParenSemicolon, tokenizer.next().?.kind);
+        std.testing.expectEqualSlices(u8, "0", tokenizer.next().?.raw);
+        std.testing.expectEqual(Sexpr.Token.Kind.SemicolonCloseParen, tokenizer.next().?.kind);
 
         std.testing.expectEqual(@as(?Sexpr.Token, null), tokenizer.next());
     }
@@ -196,7 +269,7 @@ test "Tokenizer" {
 
 test "Sexpr.parse" {
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(a bc 42)");
+        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(a bc 42)", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -205,7 +278,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@as(usize, 42), sexpr.root[2].integer);
     }
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(() ())");
+        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(() ())", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
@@ -213,7 +286,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[1]);
     }
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator, "( ( ( ())))");
+        var sexpr = try Sexpr.parse(&ParseContext{ .string = "( ( ( ())))", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0]);
@@ -221,7 +294,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem).list, sexpr.root[0].list[0].list[0]);
     }
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator, "(block  ;; label = @1\n  local.get 4)");
+        var sexpr = try Sexpr.parse(&ParseContext{ .string = "(block  ;; label = @1\n  local.get 4)", .allocator = std.heap.page_allocator });
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -232,7 +305,7 @@ test "Sexpr.parse" {
 }
 
 pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
-    var sexpr = try Sexpr.parse(allocator, string);
+    var sexpr = try Sexpr.parse(&ParseContext{ .string = string, .allocator = allocator });
     defer sexpr.deinit();
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -400,12 +473,14 @@ test "parse" {
 
 test "parseNode" {
     {
-        var sexpr = try Sexpr.parse(std.heap.page_allocator,
-            \\(func (param i32) (param f32) (result i64) (local f64)
-            \\  local.get 0
-            \\  local.get 1
-            \\  local.get 2)
-        );
+        var sexpr = try Sexpr.parse(&ParseContext{
+            .allocator = std.heap.page_allocator,
+            .string =
+                \\(func (param i32) (param f32) (result i64) (local f64)
+                \\  local.get 0
+                \\  local.get 1
+                \\  local.get 2)
+                    });
         defer sexpr.deinit();
 
         var node = try parseNode(&sexpr.arena.allocator, sexpr.root);
