@@ -346,6 +346,12 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     };
 }
 
+fn pop(list: []Sexpr.Elem, i: *usize) ?Sexpr.Elem {
+    if (i.* >= list.len) return null;
+    defer i.* += 1;
+    return list[i.*];
+}
+
 fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
     try ctx.validate(elem.data == .list, elem.token.source);
 
@@ -394,20 +400,16 @@ fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !c
         }
 
         var instrs = std.ArrayList(core.Module.Instr).init(arena);
-        while (i < list.len) : (i += 1) {
-            try ctx.validate(list[i].data == .keyword, list[i].token.source);
+        while (pop(list, &i)) |val| {
+            try ctx.validate(val.data == .keyword, val.token.source);
 
-            const op = Op.byName(list[i].data.keyword) orelse {
-                return ctx.fail(list[i].token.source);
-            };
-            const arg = if (op.arg.kind == .None)
-                Op.Arg{ ._pad = 0 }
-            else blk: {
-                i += 1;
-                const next = list[i];
-                switch (op.arg.kind) {
-                    .None => unreachable,
-                    .Type => {
+            const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
+            try instrs.append(.{
+                .opcode = op.code,
+                .arg = switch (op.arg.kind) {
+                    .None => .{ ._pad = 0 },
+                    .Type => blk: {
+                        const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                         try ctx.validate(next.data == .keyword, next.token.source);
                         const t = if (std.mem.eql(u8, next.data.keyword, "void"))
                             Op.Arg.Type.Void
@@ -424,7 +426,8 @@ fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !c
 
                         break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
                     },
-                    .I32 => {
+                    .I32 => blk: {
+                        const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                         try ctx.validate(next.data == .integer, next.token.source);
                         var raw: [4]u8 = undefined;
                         std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.data.integer));
@@ -433,9 +436,8 @@ fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !c
                     .I32z, .Mem => {
                         @panic(list[i].data.keyword);
                     },
-                }
-            };
-            try instrs.append(.{ .opcode = op.code, .arg = arg });
+                },
+            });
         }
 
         return core.Module.Node{
