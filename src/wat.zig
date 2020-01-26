@@ -114,11 +114,9 @@ const Sexpr = struct {
 
     pub fn parse(ctx: *ParseContext, allocator: *std.mem.Allocator) !Sexpr {
         const arena = try allocator.create(std.heap.ArenaAllocator);
+        errdefer allocator.destroy(arena);
         arena.* = std.heap.ArenaAllocator.init(allocator);
-        errdefer {
-            arena.deinit();
-            allocator.destroy(arena);
-        }
+        errdefer arena.deinit();
 
         var tokenizer = Tokenizer.init(ctx.string);
         if (tokenizer.next()) |start| {
@@ -326,11 +324,9 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     defer sexpr.deinit();
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
+    errdefer allocator.destroy(arena);
     arena.* = std.heap.ArenaAllocator.init(allocator);
-    errdefer {
-        arena.deinit();
-        allocator.destroy(arena);
-    }
+    errdefer arena.deinit();
 
     try ctx.validate(sexpr.root.len > 0, ctx.eof());
     try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
