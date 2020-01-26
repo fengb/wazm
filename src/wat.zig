@@ -3,6 +3,13 @@ const builtin = @import("builtin");
 const core = @import("core.zig");
 const Op = @import("op.zig");
 
+fn swhash(string: []const u8) u128 {
+    if (string.len >= 16) return std.math.maxInt(u128);
+    var tmp = [_]u8{0} ** 16;
+    std.mem.copy(u8, &tmp, string);
+    return std.mem.readIntLittle(u128, &tmp);
+}
+
 const ParseContext = struct {
     string: []const u8,
     err: ?struct {
@@ -355,98 +362,90 @@ fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !c
     try ctx.validate(list.len > 0, elem.token.source);
     try ctx.validate(list[0].data == .keyword, list[0].token.source);
 
-    if (std.mem.eql(u8, list[0].data.keyword, "memory")) {
-        try ctx.validate(list.len == 2, elem.token.source);
-        try ctx.validate(list[1].data == .integer, list[1].token.source);
+    switch (swhash(list[0].data.keyword)) {
+        swhash("memory") => {
+            try ctx.validate(list.len == 2, elem.token.source);
+            try ctx.validate(list[1].data == .integer, list[1].token.source);
 
-        return core.Module.Node{
-            .memory = list[1].data.integer,
-        };
-    } else if (std.mem.eql(u8, list[0].data.keyword, "func")) {
-        var params = std.ArrayList(core.Module.Type).init(arena);
-        var locals = std.ArrayList(core.Module.Type).init(arena);
-        var result: ?core.Module.Type = null;
+            return core.Module.Node{
+                .memory = list[1].data.integer,
+            };
+        },
+        swhash("func") => {
+            var params = std.ArrayList(core.Module.Type).init(arena);
+            var locals = std.ArrayList(core.Module.Type).init(arena);
+            var result: ?core.Module.Type = null;
 
-        var i: usize = 1;
-        while (i < list.len and list[i].data == .list) : (i += 1) {
-            const pair = list[i].data.list;
-            try ctx.validate(pair.len == 2, list[i].token.source);
-            try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
-            const typ = if (std.mem.eql(u8, pair[1].data.keyword, "i32"))
-                core.Module.Type.I32
-            else if (std.mem.eql(u8, pair[1].data.keyword, "i64"))
-                core.Module.Type.I64
-            else if (std.mem.eql(u8, pair[1].data.keyword, "f32"))
-                core.Module.Type.F32
-            else if (std.mem.eql(u8, pair[1].data.keyword, "f64"))
-                core.Module.Type.F64
-            else
-                return ctx.fail(pair[1].token.source);
+            var i: usize = 1;
+            while (i < list.len and list[i].data == .list) : (i += 1) {
+                const pair = list[i].data.list;
+                try ctx.validate(pair.len == 2, list[i].token.source);
+                try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
+                const typ = switch (swhash(pair[1].data.keyword)) {
+                    swhash("i32") => core.Module.Type.I32,
+                    swhash("i64") => core.Module.Type.I64,
+                    swhash("f32") => core.Module.Type.F32,
+                    swhash("f64") => core.Module.Type.F64,
+                    else => return ctx.fail(pair[1].token.source),
+                };
 
-            try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
-            if (std.mem.eql(u8, pair[0].data.keyword, "param")) {
-                try params.append(typ);
-            } else if (std.mem.eql(u8, pair[0].data.keyword, "local")) {
-                try locals.append(typ);
-            } else if (std.mem.eql(u8, pair[0].data.keyword, "result")) {
-                result = typ;
-            } else {
-                return ctx.fail(pair[0].token.source);
+                try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
+                switch (swhash(pair[0].data.keyword)) {
+                    swhash("param") => try params.append(typ),
+                    swhash("local") => try locals.append(typ),
+                    swhash("result") => result = typ,
+                    else => return ctx.fail(pair[0].token.source),
+                }
             }
-        }
 
-        var instrs = std.ArrayList(core.Module.Instr).init(arena);
-        while (pop(list, &i)) |val| {
-            try ctx.validate(val.data == .keyword, val.token.source);
+            var instrs = std.ArrayList(core.Module.Instr).init(arena);
+            while (pop(list, &i)) |val| {
+                try ctx.validate(val.data == .keyword, val.token.source);
 
-            const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
-            try instrs.append(.{
-                .opcode = op.code,
-                .arg = switch (op.arg.kind) {
-                    .None => .{ ._pad = 0 },
-                    .Type => blk: {
-                        const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                        try ctx.validate(next.data == .keyword, next.token.source);
-                        const t = if (std.mem.eql(u8, next.data.keyword, "void"))
-                            Op.Arg.Type.Void
-                        else if (std.mem.eql(u8, next.data.keyword, "i32"))
-                            Op.Arg.Type.I32
-                        else if (std.mem.eql(u8, next.data.keyword, "i64"))
-                            Op.Arg.Type.I64
-                        else if (std.mem.eql(u8, next.data.keyword, "f32"))
-                            Op.Arg.Type.F32
-                        else if (std.mem.eql(u8, next.data.keyword, "f64"))
-                            Op.Arg.Type.F64
-                        else
-                            return ctx.fail(next.token.source);
+                const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
+                try instrs.append(.{
+                    .opcode = op.code,
+                    .arg = switch (op.arg.kind) {
+                        .None => .{ ._pad = 0 },
+                        .Type => blk: {
+                            const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                            try ctx.validate(next.data == .keyword, next.token.source);
+                            const t = switch (swhash(next.data.keyword)) {
+                                swhash("void") => Op.Arg.Type.Void,
+                                swhash("i32") => Op.Arg.Type.I32,
+                                swhash("i64") => Op.Arg.Type.I64,
+                                swhash("f32") => Op.Arg.Type.F32,
+                                swhash("f64") => Op.Arg.Type.F64,
+                                else => return ctx.fail(next.token.source),
+                            };
 
-                        break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
+                            break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
+                        },
+                        .I32 => blk: {
+                            const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                            try ctx.validate(next.data == .integer, next.token.source);
+                            var raw: [4]u8 = undefined;
+                            std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.data.integer));
+                            break :blk Op.Arg{ .b4 = raw };
+                        },
+                        .I32z, .Mem => {
+                            @panic(list[i].data.keyword);
+                        },
                     },
-                    .I32 => blk: {
-                        const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                        try ctx.validate(next.data == .integer, next.token.source);
-                        var raw: [4]u8 = undefined;
-                        std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.data.integer));
-                        break :blk Op.Arg{ .b4 = raw };
-                    },
-                    .I32z, .Mem => {
-                        @panic(list[i].data.keyword);
-                    },
+                });
+            }
+
+            return core.Module.Node{
+                .func = .{
+                    .name = null,
+                    .params = params.toOwnedSlice(),
+                    .result = result,
+                    .locals = locals.toOwnedSlice(),
+                    .instrs = instrs.toOwnedSlice(),
                 },
-            });
-        }
-
-        return core.Module.Node{
-            .func = .{
-                .name = null,
-                .params = params.toOwnedSlice(),
-                .result = result,
-                .locals = locals.toOwnedSlice(),
-                .instrs = instrs.toOwnedSlice(),
-            },
-        };
-    } else {
-        return ctx.fail(list[0].token.source);
+            };
+        },
+        else => return ctx.fail(list[0].token.source),
     }
 }
 
