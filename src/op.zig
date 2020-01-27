@@ -20,12 +20,16 @@ pub const StackChange = enum {
     }
 };
 
-pub const Arg = packed union {
-    b1: u8,
-    b4: [4]u8,
-    b5: [5]u8,
-    b8: [8]u8,
-    _pad: u64,
+pub const Arg = packed struct {
+    raw: [8]u8 = [_]u8{0} ** 8,
+
+    pub fn init(data: var) Arg {
+        const T = @TypeOf(data);
+        var result = Arg{};
+        const bytes = @ptrCast(*const [@sizeOf(T)]u8, &data);
+        std.mem.copy(u8, &result.raw, bytes);
+        return result;
+    }
 
     pub const None = packed union {
         const bytes = 0;

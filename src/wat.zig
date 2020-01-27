@@ -406,27 +406,25 @@ fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !c
                 try instrs.append(.{
                     .opcode = op.code,
                     .arg = switch (op.arg.kind) {
-                        .None => .{ ._pad = 0 },
+                        .None => Op.Arg{},
                         .Type => blk: {
                             const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                             try ctx.validate(next.data == .keyword, next.token.source);
-                            const t = switch (swhash(next.data.keyword)) {
-                                swhash("void") => Op.Arg.Type.Void,
-                                swhash("i32") => Op.Arg.Type.I32,
-                                swhash("i64") => Op.Arg.Type.I64,
-                                swhash("f32") => Op.Arg.Type.F32,
-                                swhash("f64") => Op.Arg.Type.F64,
-                                else => return ctx.fail(next.token.source),
-                            };
-
-                            break :blk Op.Arg{ .b1 = @intCast(u8, @enumToInt(t)) };
+                            break :blk Op.Arg.init(
+                                switch (swhash(next.data.keyword)) {
+                                    swhash("void") => Op.Arg.Type.Void,
+                                    swhash("i32") => Op.Arg.Type.I32,
+                                    swhash("i64") => Op.Arg.Type.I64,
+                                    swhash("f32") => Op.Arg.Type.F32,
+                                    swhash("f64") => Op.Arg.Type.F64,
+                                    else => return ctx.fail(next.token.source),
+                                },
+                            );
                         },
                         .I32 => blk: {
                             const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                             try ctx.validate(next.data == .integer, next.token.source);
-                            var raw: [4]u8 = undefined;
-                            std.mem.writeIntLittle(u32, &raw, @intCast(u32, next.data.integer));
-                            break :blk Op.Arg{ .b4 = raw };
+                            break :blk Op.Arg.init(next.data.integer);
                         },
                         .I32z, .Mem => {
                             @panic(list[i].data.keyword);
