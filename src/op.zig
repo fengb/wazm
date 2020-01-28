@@ -288,6 +288,18 @@ const Impl = struct {
     pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!f64 {
         return std.mem.readIntLittle(f64, try self.memGet(pop, mem.offset, 8));
     }
+    pub fn @"0x2C i32.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+        return std.mem.readIntLittle(i8, try self.memGet(pop, mem.offset, 1));
+    }
+    pub fn @"0x2D i32.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!u32 {
+        return std.mem.readIntLittle(u8, try self.memGet(pop, mem.offset, 1));
+    }
+    pub fn @"0x2E i32.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+        return std.mem.readIntLittle(i16, try self.memGet(pop, mem.offset, 2));
+    }
+    pub fn @"0x2F i32.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!u32 {
+        return std.mem.readIntLittle(u16, try self.memGet(pop, mem.offset, 2));
+    }
 
     pub fn @"0x3F memory.size"(self: *core.Instance, arg: Arg.None, pop: void) u32 {
         return @intCast(u32, self.memory.len % 65536);
