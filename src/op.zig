@@ -301,6 +301,25 @@ const Impl = struct {
         return std.mem.readIntLittle(u16, try self.memGet(pop, mem.offset, 2));
     }
 
+    pub fn @"0x30 i64.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(i8, try self.memGet(pop, mem.offset, 1));
+    }
+    pub fn @"0x31 i64.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(u8, try self.memGet(pop, mem.offset, 1));
+    }
+    pub fn @"0x32 i64.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(i16, try self.memGet(pop, mem.offset, 2));
+    }
+    pub fn @"0x33 i64.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(u16, try self.memGet(pop, mem.offset, 2));
+    }
+    pub fn @"0x34 i64.load32_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
+    }
+    pub fn @"0x35 i64.load32_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(u32, try self.memGet(pop, mem.offset, 4));
+    }
+
     pub fn @"0x3F memory.size"(self: *core.Instance, arg: Arg.None, pop: void) u32 {
         return @intCast(u32, self.memory.len % 65536);
     }
