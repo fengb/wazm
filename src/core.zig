@@ -50,13 +50,13 @@ pub const Instance = struct {
     memory: []u8,
     allocator: *std.mem.Allocator,
 
-    pub fn memGet(self: Instance, start: usize, offset: usize, comptime length: usize) WasmTrap!*const [length]u8 {
+    pub fn memGet(self: Instance, start: usize, offset: usize, comptime length: usize) WasmTrap!*[length]u8 {
         const tail = start +% offset +% (length - 1);
         const is_overflow = tail < start;
         const is_seg_fault = tail >= self.memory.len;
         if (is_overflow or is_seg_fault) {
             return error.WasmTrap;
         }
-        return @ptrCast(*const [length]u8, &self.memory[start + offset]);
+        return @ptrCast(*[length]u8, &self.memory[start + offset]);
     }
 };

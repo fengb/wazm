@@ -127,6 +127,7 @@ const Meta = struct {
 };
 
 pub const sparse = blk: {
+    @setEvalBranchQuota(10000);
     const decls = publicFunctions(Impl);
     var result: [decls.len]Meta = undefined;
     for (decls) |decl, i| {
@@ -154,12 +155,20 @@ pub const sparse = blk: {
             .push = StackChange.from(return_type),
             .pop = switch (@typeInfo(pop_type)) {
                 .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
+                .Struct => |s_info| blk: {
+                    std.debug.assert(s_info.fields.len == 2);
+                    std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "0"));
+                    std.debug.assert(std.mem.eql(u8, s_info.fields[1].name, "1"));
+                    break :blk .{
+                        StackChange.from(s_info.fields[0].field_type),
+                        StackChange.from(s_info.fields[1].field_type),
+                    };
+                },
                 else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
             },
         };
     }
 
-    @setEvalBranchQuota(10000);
     std.sort.sort(Meta, &result, Meta.lessThan);
 
     break :blk result;
@@ -229,6 +238,10 @@ test "ops" {
 
 const Impl = struct {
     const WasmTrap = core.WasmTrap;
+
+    fn Pair(comptime T0: type, comptime T1: type) type {
+        return @TypeOf(.{ @as(T0, 0), @as(T1, 0) });
+    }
 
     pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) WasmTrap!void {
         return error.WasmTrap;
@@ -319,10 +332,46 @@ const Impl = struct {
     pub fn @"0x35 i64.load32_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
         return std.mem.readIntLittle(u32, try self.memGet(pop, mem.offset, 4));
     }
-
+    pub fn @"0x36 i32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 4);
+        std.mem.writeIntLittle(i32, bytes, pop[1]);
+    }
+    pub fn @"0x37 i64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 8);
+        std.mem.writeIntLittle(i64, bytes, pop[1]);
+    }
+    pub fn @"0x38 f32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f32)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 4);
+        std.mem.writeIntLittle(f32, bytes, pop[1]);
+    }
+    pub fn @"0x39 f64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f64)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 8);
+        std.mem.writeIntLittle(f64, bytes, pop[1]);
+    }
+    pub fn @"0x3A i32.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 1);
+        std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop[1]));
+    }
+    pub fn @"0x3B i32.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 2);
+        std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop[1]));
+    }
+    pub fn @"0x3C i64.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 1);
+        std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop[1]));
+    }
+    pub fn @"0x3B i64.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 2);
+        std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop[1]));
+    }
+    pub fn @"0x3A i64.store32"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+        const bytes = try self.memGet(pop[0], mem.offset, 4);
+        std.mem.writeIntLittle(i32, bytes, @truncate(i32, pop[1]));
+    }
     pub fn @"0x3F memory.size"(self: *core.Instance, arg: Arg.None, pop: void) u32 {
         return @intCast(u32, self.memory.len % 65536);
     }
+
     pub fn @"0x40 memory.grow"(self: *core.Instance, arg: Arg.None, pop: u32) i32 {
         const page_overflow = 65536; // 65536 * 65536 = 4294967296 -> beyond addressable
         const current = self.memory.len % 65536;
