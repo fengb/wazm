@@ -43,12 +43,12 @@ pub const Module = struct {
     };
 };
 
+pub const WasmTrap = error{WasmTrap};
+
 pub const Instance = struct {
     module: *Module,
     memory: []u8,
     allocator: *std.mem.Allocator,
-
-    const WasmTrap = error{WasmTrap};
 
     pub fn memGet(self: Instance, start: usize, offset: usize, comptime length: usize) WasmTrap!*const [length]u8 {
         const tail = start +% offset +% (length - 1);

@@ -16,7 +16,10 @@ pub const StackChange = enum {
             i64, u64 => .I64,
             f32 => .F32,
             f64 => .F64,
-            else => @compileError("Unsupported type:" ++ @typeName(T)),
+            else => switch (@typeInfo(T)) {
+                .ErrorUnion => |eu_info| from(eu_info.payload),
+                else => @compileError("Unsupported type:" ++ @typeName(T)),
+            },
         };
     }
 };
@@ -93,6 +96,7 @@ test "Arg smoke" {
 const Meta = struct {
     code: u8,
     name: []const u8,
+    can_error: bool,
     arg: struct {
         kind: ArgKind,
         bytes: u8,
@@ -134,12 +138,20 @@ pub const sparse = blk: {
         const ctx_type = args[0].arg_type.?;
         const arg_type = args[1].arg_type.?;
         const pop_type = args[2].arg_type.?;
+        const return_type = decl.data.Fn.return_type;
 
         result[i] = .{
             .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
             .name = decl.name[5..],
+            .can_error = switch (@typeInfo(return_type)) {
+                .ErrorUnion => |eu_info| blk: {
+                    std.debug.assert(eu_info.error_set == core.WasmTrap);
+                    break :blk true;
+                },
+                else => false,
+            },
             .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
-            .push = StackChange.from(decl.data.Fn.return_type),
+            .push = StackChange.from(return_type),
             .pop = switch (@typeInfo(pop_type)) {
                 .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
                 else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
@@ -157,14 +169,12 @@ pub const all = blk: {
     const uninit = Meta{
         .code = 0xAA,
         .name = "ILLEGAL",
+        .can_error = true,
         .arg = .{ .bytes = 0, .kind = .Void },
         .pop = .{ .Void, .Void },
         .push = .Void,
     };
     var result = [_]Meta{uninit} ** 256;
-    for (result) |*meta, i| {
-        meta.code = i;
-    }
 
     for (sparse) |meta| {
         result[meta.code] = meta;
@@ -218,10 +228,10 @@ test "ops" {
 }
 
 const Impl = struct {
-    const Trap = error{WasmTrap};
+    const WasmTrap = core.WasmTrap;
 
-    pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) void {
-        @panic("TODO");
+    pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) WasmTrap!void {
+        return error.WasmTrap;
     }
 
     pub fn @"0x01 nop"(self: *core.Instance, arg: Arg.None, pop: void) void {}
@@ -266,18 +276,17 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) i32 {
-        // TODO: handle WasmTrap
-        return std.mem.readIntLittle(i32, self.memGet(pop, mem.offset, 4) catch unreachable);
+    pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+        return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x29 i64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) i64 {
-        return std.mem.readIntLittle(i64, self.memGet(pop, mem.offset, 8) catch unreachable);
+    pub fn @"0x29 i64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+        return std.mem.readIntLittle(i64, try self.memGet(pop, mem.offset, 8));
     }
-    pub fn @"0x2A f32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) f32 {
-        return std.mem.readIntLittle(f32, self.memGet(pop, mem.offset, 4) catch unreachable);
+    pub fn @"0x2A f32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!f32 {
+        return std.mem.readIntLittle(f32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) f64 {
-        return std.mem.readIntLittle(f64, self.memGet(pop, mem.offset, 8) catch unreachable);
+    pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!f64 {
+        return std.mem.readIntLittle(f64, try self.memGet(pop, mem.offset, 8));
     }
 
     pub fn @"0x3F memory.size"(self: *core.Instance, arg: Arg.None, pop: void) u32 {
