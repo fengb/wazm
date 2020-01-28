@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const core = @import("core.zig");
 
 pub const StackChange = enum {
     Void,
@@ -11,8 +12,8 @@ pub const StackChange = enum {
     fn from(comptime T: type) StackChange {
         return switch (T) {
             void => .Void,
-            i32 => .I32,
-            i64 => .I64,
+            i32, u32 => .I32,
+            i64, u64 => .I64,
             f32 => .F32,
             f64 => .F64,
             else => @compileError("Unsupported type:" ++ @typeName(T)),
@@ -146,6 +147,7 @@ pub const sparse = blk: {
         };
     }
 
+    @setEvalBranchQuota(10000);
     std.sort.sort(Meta, &result, Meta.lessThan);
 
     break :blk result;
@@ -216,57 +218,80 @@ test "ops" {
 }
 
 const Impl = struct {
-    const Context = struct {};
+    const Trap = error{WasmTrap};
 
-    pub fn @"0x00 unreachable"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x01 nop"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x01 nop"(self: *core.Instance, arg: Arg.None, pop: void) void {}
+
+    pub fn @"0x02 block"(self: *core.Instance, arg: Arg.Type, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x02 block"(ctx: Context, arg: Arg.Type, pop: void) void {
+    pub fn @"0x03 loop"(self: *core.Instance, arg: Arg.Type, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x03 loop"(ctx: Context, arg: Arg.Type, pop: void) void {
+    pub fn @"0x04 if"(self: *core.Instance, arg: Arg.Type, pop: i32) void {
         @panic("TODO");
     }
 
-    pub fn @"0x04 if"(ctx: Context, arg: Arg.Type, pop: i32) void {
+    pub fn @"0x05 else"(self: *core.Instance, arg: Arg.None, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x05 else"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x0B end"(self: *core.Instance, arg: Arg.None, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0B end"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x0C br"(self: *core.Instance, arg: Arg.None, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0C br"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x0D br_if"(self: *core.Instance, arg: Arg.I32, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0D br_if"(ctx: Context, arg: Arg.I32, pop: void) void {
+    pub fn @"0x0E br_table"(self: *core.Instance, arg: Arg.Mem, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0E br_table"(ctx: Context, arg: Arg.Mem, pop: void) void {
+    pub fn @"0x0F return"(self: *core.Instance, arg: Arg.None, pop: void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0F return"(ctx: Context, arg: Arg.None, pop: void) void {
+    pub fn @"0x20 local.get"(self: *core.Instance, arg: Arg.I32, pop: i32) i32 {
         @panic("TODO");
     }
 
-    pub fn @"0x20 local.get"(ctx: Context, arg: Arg.I32, pop: i32) i32 {
-        @panic("TODO");
+    pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) i32 {
+        // TODO: handle WasmTrap
+        return std.mem.readIntLittle(i32, self.memGet(pop, mem.offset, 4) catch unreachable);
+    }
+    pub fn @"0x29 i64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) i64 {
+        return std.mem.readIntLittle(i64, self.memGet(pop, mem.offset, 8) catch unreachable);
+    }
+    pub fn @"0x2A f32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) f32 {
+        return std.mem.readIntLittle(f32, self.memGet(pop, mem.offset, 4) catch unreachable);
+    }
+    pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) f64 {
+        return std.mem.readIntLittle(f64, self.memGet(pop, mem.offset, 8) catch unreachable);
     }
 
-    pub fn @"0x28 i32.load"(ctx: Context, arg: Arg.Mem, pop: i32) i32 {
-        @panic("TODO");
+    pub fn @"0x3F memory.size"(self: *core.Instance, arg: Arg.None, pop: void) u32 {
+        return @intCast(u32, self.memory.len % 65536);
+    }
+    pub fn @"0x40 memory.grow"(self: *core.Instance, arg: Arg.None, pop: u32) i32 {
+        const page_overflow = 65536; // 65536 * 65536 = 4294967296 -> beyond addressable
+        const current = self.memory.len % 65536;
+        if (current + pop > page_overflow) {
+            return -1;
+        }
+        self.memory = self.allocator.realloc(self.memory, current + pop) catch |err| switch (err) {
+            error.OutOfMemory => return -1,
+        };
+        return @intCast(i32, current);
     }
 };
