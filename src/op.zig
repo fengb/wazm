@@ -218,33 +218,55 @@ test "ops" {
 const Impl = struct {
     const Context = struct {};
 
-    pub fn @"0x00 unreachable"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x00 unreachable"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x01 nop"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x01 nop"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x02 block"(ctx: Context, arg: Arg.Type, pop: void) void {}
+    pub fn @"0x02 block"(ctx: Context, arg: Arg.Type, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x03 loop"(ctx: Context, arg: Arg.Type, pop: void) void {}
+    pub fn @"0x03 loop"(ctx: Context, arg: Arg.Type, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x04 if"(ctx: Context, arg: Arg.Type, pop: i32) void {}
+    pub fn @"0x04 if"(ctx: Context, arg: Arg.Type, pop: i32) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x05 else"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x05 else"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x0B end"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x0B end"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x0C br"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x0C br"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x0D br_if"(ctx: Context, arg: Arg.I32, pop: void) void {}
+    pub fn @"0x0D br_if"(ctx: Context, arg: Arg.I32, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x0E br_table"(ctx: Context, arg: Arg.Mem, pop: void) void {}
+    pub fn @"0x0E br_table"(ctx: Context, arg: Arg.Mem, pop: void) void {
+        @panic("TODO");
+    }
 
-    pub fn @"0x0F return"(ctx: Context, arg: Arg.None, pop: void) void {}
+    pub fn @"0x0F return"(ctx: Context, arg: Arg.None, pop: void) void {
+        @panic("TODO");
+    }
 
     pub fn @"0x20 local.get"(ctx: Context, arg: Arg.I32, pop: i32) i32 {
-        return 0;
+        @panic("TODO");
     }
 
     pub fn @"0x28 i32.load"(ctx: Context, arg: Arg.Mem, pop: i32) i32 {
-        return 0;
+        @panic("TODO");
     }
 };
