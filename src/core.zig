@@ -3,17 +3,15 @@ const Op = @import("op.zig");
 
 pub const Module = struct {
     arena: *std.heap.ArenaAllocator,
-    nodes: []Node,
+    memory: u32 = 0,
+    funcs: []Func,
+    exports: []Export,
 
     pub fn deinit(self: *Module) void {
         self.arena.deinit();
-        self.nodes = &[0]Node{};
+        self.funcs = &[0]Func{};
+        self.exports = &[0]Export{};
     }
-
-    pub const Node = union(enum) {
-        memory: usize,
-        func: Func,
-    };
 
     pub const Type = enum {
         I32,
@@ -25,7 +23,7 @@ pub const Module = struct {
     pub const Export = struct {
         name: []const u8,
         value: union(enum) {
-            func: []const n8,
+            func: usize,
         },
     };
 

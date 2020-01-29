@@ -325,6 +325,12 @@ test "Sexpr.parse" {
     }
 }
 
+fn pop(list: []Sexpr.Elem, i: *usize) ?Sexpr.Elem {
+    if (i.* >= list.len) return null;
+    defer i.* += 1;
+    return list[i.*];
+}
+
 pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     var ctx = ParseContext.init(string);
     var sexpr = try Sexpr.parse(&ctx, allocator);
@@ -338,113 +344,104 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     try ctx.validate(sexpr.root.len > 0, ctx.eof());
     try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
 
-    var list = std.ArrayList(core.Module.Node).init(&arena.allocator);
+    var memory: usize = 0;
+    var funcs = std.ArrayList(core.Module.Func).init(&arena.allocator);
+    var exports = std.ArrayList(core.Module.Export).init(&arena.allocator);
+
     for (sexpr.root[1..]) |elem| {
-        try list.append(try parseNode(&ctx, &arena.allocator, elem));
-    }
+        try ctx.validate(elem.data == .list, elem.token.source);
 
-    return core.Module{
-        .arena = arena,
-        .nodes = list.toOwnedSlice(),
-    };
-}
+        const list = elem.data.list;
+        try ctx.validate(list.len > 0, elem.token.source);
+        try ctx.validate(list[0].data == .keyword, list[0].token.source);
 
-fn pop(list: []Sexpr.Elem, i: *usize) ?Sexpr.Elem {
-    if (i.* >= list.len) return null;
-    defer i.* += 1;
-    return list[i.*];
-}
+        switch (swhash(list[0].data.keyword)) {
+            swhash("memory") => {
+                try ctx.validate(list.len == 2, elem.token.source);
+                try ctx.validate(list[1].data == .integer, list[1].token.source);
 
-fn parseNode(ctx: *ParseContext, arena: *std.mem.Allocator, elem: Sexpr.Elem) !core.Module.Node {
-    try ctx.validate(elem.data == .list, elem.token.source);
+                memory = list[1].data.integer;
+            },
+            swhash("func") => {
+                var params = std.ArrayList(core.Module.Type).init(&arena.allocator);
+                var locals = std.ArrayList(core.Module.Type).init(&arena.allocator);
+                var result: ?core.Module.Type = null;
 
-    const list = elem.data.list;
-    try ctx.validate(list.len > 0, elem.token.source);
-    try ctx.validate(list[0].data == .keyword, list[0].token.source);
+                var i: usize = 1;
+                while (i < list.len and list[i].data == .list) : (i += 1) {
+                    const pair = list[i].data.list;
+                    try ctx.validate(pair.len == 2, list[i].token.source);
+                    try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
+                    const typ = switch (swhash(pair[1].data.keyword)) {
+                        swhash("i32") => core.Module.Type.I32,
+                        swhash("i64") => core.Module.Type.I64,
+                        swhash("f32") => core.Module.Type.F32,
+                        swhash("f64") => core.Module.Type.F64,
+                        else => return ctx.fail(pair[1].token.source),
+                    };
 
-    switch (swhash(list[0].data.keyword)) {
-        swhash("memory") => {
-            try ctx.validate(list.len == 2, elem.token.source);
-            try ctx.validate(list[1].data == .integer, list[1].token.source);
-
-            return core.Module.Node{
-                .memory = list[1].data.integer,
-            };
-        },
-        swhash("func") => {
-            var params = std.ArrayList(core.Module.Type).init(arena);
-            var locals = std.ArrayList(core.Module.Type).init(arena);
-            var result: ?core.Module.Type = null;
-
-            var i: usize = 1;
-            while (i < list.len and list[i].data == .list) : (i += 1) {
-                const pair = list[i].data.list;
-                try ctx.validate(pair.len == 2, list[i].token.source);
-                try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
-                const typ = switch (swhash(pair[1].data.keyword)) {
-                    swhash("i32") => core.Module.Type.I32,
-                    swhash("i64") => core.Module.Type.I64,
-                    swhash("f32") => core.Module.Type.F32,
-                    swhash("f64") => core.Module.Type.F64,
-                    else => return ctx.fail(pair[1].token.source),
-                };
-
-                try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
-                switch (swhash(pair[0].data.keyword)) {
-                    swhash("param") => try params.append(typ),
-                    swhash("local") => try locals.append(typ),
-                    swhash("result") => result = typ,
-                    else => return ctx.fail(pair[0].token.source),
+                    try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
+                    switch (swhash(pair[0].data.keyword)) {
+                        swhash("param") => try params.append(typ),
+                        swhash("local") => try locals.append(typ),
+                        swhash("result") => result = typ,
+                        else => return ctx.fail(pair[0].token.source),
+                    }
                 }
-            }
 
-            var instrs = std.ArrayList(core.Module.Instr).init(arena);
-            while (pop(list, &i)) |val| {
-                try ctx.validate(val.data == .keyword, val.token.source);
+                var instrs = std.ArrayList(core.Module.Instr).init(&arena.allocator);
+                while (pop(list, &i)) |val| {
+                    try ctx.validate(val.data == .keyword, val.token.source);
 
-                const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
-                try instrs.append(.{
-                    .opcode = op.code,
-                    .arg = switch (op.arg.kind) {
-                        .None => Op.Arg{},
-                        .Type => blk: {
-                            const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                            try ctx.validate(next.data == .keyword, next.token.source);
-                            break :blk Op.Arg.init(
-                                switch (swhash(next.data.keyword)) {
-                                    swhash("void") => Op.Arg.Type.Void,
-                                    swhash("i32") => Op.Arg.Type.I32,
-                                    swhash("i64") => Op.Arg.Type.I64,
-                                    swhash("f32") => Op.Arg.Type.F32,
-                                    swhash("f64") => Op.Arg.Type.F64,
-                                    else => return ctx.fail(next.token.source),
-                                },
-                            );
+                    const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
+                    try instrs.append(.{
+                        .opcode = op.code,
+                        .arg = switch (op.arg.kind) {
+                            .None => Op.Arg{},
+                            .Type => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .keyword, next.token.source);
+                                break :blk Op.Arg.init(
+                                    switch (swhash(next.data.keyword)) {
+                                        swhash("void") => Op.Arg.Type.Void,
+                                        swhash("i32") => Op.Arg.Type.I32,
+                                        swhash("i64") => Op.Arg.Type.I64,
+                                        swhash("f32") => Op.Arg.Type.F32,
+                                        swhash("f64") => Op.Arg.Type.F64,
+                                        else => return ctx.fail(next.token.source),
+                                    },
+                                );
+                            },
+                            .I32 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .integer, next.token.source);
+                                break :blk Op.Arg.init(next.data.integer);
+                            },
+                            .I32z, .Mem => {
+                                @panic(list[i].data.keyword);
+                            },
                         },
-                        .I32 => blk: {
-                            const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                            try ctx.validate(next.data == .integer, next.token.source);
-                            break :blk Op.Arg.init(next.data.integer);
-                        },
-                        .I32z, .Mem => {
-                            @panic(list[i].data.keyword);
-                        },
-                    },
-                });
-            }
+                    });
+                }
 
-            return core.Module.Node{
-                .func = .{
+                try funcs.append(.{
                     .name = null,
                     .params = params.toOwnedSlice(),
                     .result = result,
                     .locals = locals.toOwnedSlice(),
                     .instrs = instrs.toOwnedSlice(),
-                },
-            };
-        },
-        else => return ctx.fail(list[0].token.source),
+                });
+            },
+            else => return ctx.fail(list[0].token.source),
+        }
     }
+
+    return core.Module{
+        .arena = arena,
+        .memory = @intCast(u32, memory),
+        .funcs = funcs.toOwnedSlice(),
+        .exports = exports.toOwnedSlice(),
+    };
 }
 
 test "parse" {
@@ -452,45 +449,40 @@ test "parse" {
         var module = try parse(std.heap.page_allocator, "(module)");
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 0), module.nodes.len);
+        std.testing.expectEqual(@as(u32, 0), module.memory);
+        std.testing.expectEqual(@as(usize, 0), module.funcs.len);
+        std.testing.expectEqual(@as(usize, 0), module.exports.len);
     }
     {
         var module = try parse(std.heap.page_allocator, "(module (memory 42))");
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.nodes.len);
-        std.testing.expectEqual(@as(usize, 42), module.nodes[0].memory);
+        std.testing.expectEqual(@as(usize, 42), module.memory);
     }
-}
-
-test "parseNode" {
     {
-        var ctx = ParseContext.init(
-            \\(func (param i32) (param f32) (result i64) (local f64)
-            \\  local.get 0
-            \\  local.get 1
-            \\  local.get 2)
+        var module = try parse(std.heap.page_allocator,
+            \\(module
+            \\  (func (param i32) (param f32) (result i64) (local f64)
+            \\    local.get 0
+            \\    local.get 1
+            \\    local.get 2))
         );
-        var sexpr = try Sexpr.parse(&ctx, std.heap.page_allocator);
-        defer sexpr.deinit();
+        defer module.deinit();
 
-        const wrapped = Sexpr.Elem{
-            .token = .{ .source = 0, .raw = "(", .kind = .OpenParen },
-            .data = .{ .list = sexpr.root },
-        };
-        var node = try parseNode(&ctx, &sexpr.arena.allocator, wrapped);
-        std.testing.expectEqual(@TagType(core.Module.Node).func, node);
-        std.testing.expectEqual(@as(?[]const u8, null), node.func.name);
+        std.testing.expectEqual(@as(usize, 1), module.funcs.len);
 
-        std.testing.expectEqual(@as(usize, 2), node.func.params.len);
-        std.testing.expectEqual(core.Module.Type.I32, node.func.params[0]);
-        std.testing.expectEqual(core.Module.Type.F32, node.func.params[1]);
+        const func = module.funcs[0];
+        std.testing.expectEqual(@as(?[]const u8, null), func.name);
 
-        std.testing.expectEqual(@as(usize, 1), node.func.locals.len);
-        std.testing.expectEqual(core.Module.Type.F64, node.func.locals[0]);
+        std.testing.expectEqual(@as(usize, 2), func.params.len);
+        std.testing.expectEqual(core.Module.Type.I32, func.params[0]);
+        std.testing.expectEqual(core.Module.Type.F32, func.params[1]);
 
-        std.testing.expectEqual(core.Module.Type.I64, node.func.result.?);
+        std.testing.expectEqual(@as(usize, 1), func.locals.len);
+        std.testing.expectEqual(core.Module.Type.F64, func.locals[0]);
 
-        std.testing.expectEqual(@as(usize, 3), node.func.instrs.len);
+        std.testing.expectEqual(core.Module.Type.I64, func.result.?);
+
+        std.testing.expectEqual(@as(usize, 3), func.instrs.len);
     }
 }
