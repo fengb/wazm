@@ -74,7 +74,7 @@ const ParseContext = struct {
 };
 
 const Sexpr = struct {
-    arena: *std.heap.ArenaAllocator,
+    arena: std.heap.ArenaAllocator,
     root: []Elem,
 
     const Elem = struct {
@@ -120,9 +120,7 @@ const Sexpr = struct {
     }
 
     pub fn parse(ctx: *ParseContext, allocator: *std.mem.Allocator) !Sexpr {
-        const arena = try allocator.create(std.heap.ArenaAllocator);
-        errdefer allocator.destroy(arena);
-        arena.* = std.heap.ArenaAllocator.init(allocator);
+        var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
         var tokenizer = Tokenizer.init(ctx.string);
@@ -336,9 +334,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     var sexpr = try Sexpr.parse(&ctx, allocator);
     defer sexpr.deinit();
 
-    const arena = try allocator.create(std.heap.ArenaAllocator);
-    errdefer allocator.destroy(arena);
-    arena.* = std.heap.ArenaAllocator.init(allocator);
+    var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
     try ctx.validate(sexpr.root.len > 0, ctx.eof());

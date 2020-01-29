@@ -2,7 +2,7 @@ const std = @import("std");
 const Op = @import("op.zig");
 
 pub const Module = struct {
-    arena: *std.heap.ArenaAllocator,
+    arena: std.heap.ArenaAllocator,
     memory: u32 = 0,
     funcs: []Func,
     exports: []Export,
