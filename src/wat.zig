@@ -131,8 +131,8 @@ const Sexpr = struct {
         }
 
         return Sexpr{
-            .arena = arena,
             .root = try parseList(ctx, &arena.allocator, &tokenizer),
+            .arena = arena,
         };
     }
 
@@ -288,7 +288,7 @@ test "Tokenizer" {
 
 test "Sexpr.parse" {
     {
-        var sexpr = try Sexpr.parse(&ParseContext.init("(a bc 42)"), std.heap.page_allocator);
+        var sexpr = try Sexpr.parse(&ParseContext.init("(a bc 42)"), std.testing.allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -297,7 +297,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@as(usize, 42), sexpr.root[2].data.integer);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext.init("(() ())"), std.heap.page_allocator);
+        var sexpr = try Sexpr.parse(&ParseContext.init("(() ())"), std.testing.allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 2), sexpr.root.len);
@@ -305,7 +305,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[1].data);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext.init("( ( ( ())))"), std.heap.page_allocator);
+        var sexpr = try Sexpr.parse(&ParseContext.init("( ( ( ())))"), std.testing.allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data);
@@ -313,7 +313,7 @@ test "Sexpr.parse" {
         std.testing.expectEqual(@TagType(Sexpr.Elem.Data).list, sexpr.root[0].data.list[0].data.list[0].data);
     }
     {
-        var sexpr = try Sexpr.parse(&ParseContext.init("(block  ;; label = @1\n  local.get 4)"), std.heap.page_allocator);
+        var sexpr = try Sexpr.parse(&ParseContext.init("(block  ;; label = @1\n  local.get 4)"), std.testing.allocator);
         defer sexpr.deinit();
 
         std.testing.expectEqual(@as(usize, 3), sexpr.root.len);
@@ -433,16 +433,16 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     }
 
     return core.Module{
-        .arena = arena,
         .memory = @intCast(u32, memory),
         .funcs = funcs.toOwnedSlice(),
         .exports = exports.toOwnedSlice(),
+        .arena = arena,
     };
 }
 
 test "parse" {
     {
-        var module = try parse(std.heap.page_allocator, "(module)");
+        var module = try parse(std.testing.allocator, "(module)");
         defer module.deinit();
 
         std.testing.expectEqual(@as(u32, 0), module.memory);
@@ -450,13 +450,13 @@ test "parse" {
         std.testing.expectEqual(@as(usize, 0), module.exports.len);
     }
     {
-        var module = try parse(std.heap.page_allocator, "(module (memory 42))");
+        var module = try parse(std.testing.allocator, "(module (memory 42))");
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 42), module.memory);
     }
     {
-        var module = try parse(std.heap.page_allocator,
+        var module = try parse(std.testing.allocator,
             \\(module
             \\  (func (param i32) (param f32) (result i64) (local f64)
             \\    local.get 0
