@@ -175,15 +175,7 @@ pub const sparse = blk: {
 };
 
 pub const all = blk: {
-    const uninit = Meta{
-        .code = 0xAA,
-        .name = "ILLEGAL",
-        .can_error = true,
-        .arg = .{ .bytes = 0, .kind = .Void },
-        .pop = .{ .Void, .Void },
-        .push = .Void,
-    };
-    var result = [_]Meta{uninit} ** 256;
+    var result = [_]?Meta{null} ** 256;
 
     for (sparse) |meta| {
         result[meta.code] = meta;
