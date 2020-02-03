@@ -50,12 +50,27 @@ pub const Arg = packed struct {
     };
     pub const I32 = packed union {
         const bytes = 4;
-        data: u32,
+        data: i32,
+        _pad: u64,
+    };
+    pub const I64 = packed union {
+        const bytes = 8;
+        data: i64,
+        _pad: u64,
+    };
+    pub const F32 = packed union {
+        const bytes = 4;
+        data: f32,
+        _pad: u64,
+    };
+    pub const F64 = packed union {
+        const bytes = 8;
+        data: f64,
         _pad: u64,
     };
     pub const I32z = packed union {
         const bytes = 5;
-        data: u32,
+        data: i32,
         _pad: u64,
     };
     pub const Mem = packed struct {
@@ -68,6 +83,9 @@ pub const ArgKind = enum {
     None,
     Type,
     I32,
+    I64,
+    F32,
+    F64,
     I32z,
     Mem,
 
@@ -76,6 +94,9 @@ pub const ArgKind = enum {
             Arg.None => .None,
             Arg.Type => .Type,
             Arg.I32 => .I32,
+            Arg.I64 => .I64,
+            Arg.F32 => .F32,
+            Arg.F64 => .F64,
             Arg.I32z => .I32z,
             Arg.Mem => .Mem,
             else => @compileError("Unsupported type: " ++ @typeName(T)),
@@ -378,5 +399,50 @@ const Impl = struct {
             error.OutOfMemory => return -1,
         };
         return @intCast(i32, current);
+    }
+    pub fn @"0x41 i32.const"(self: *core.Instance, arg: Arg.I32, pop: void) i32 {
+        return arg.data;
+    }
+    pub fn @"0x42 i64.const"(self: *core.Instance, arg: Arg.I64, pop: void) i64 {
+        return arg.data;
+    }
+    pub fn @"0x43 f32.const"(self: *core.Instance, arg: Arg.F32, pop: void) f32 {
+        return arg.data;
+    }
+    pub fn @"0x44 f64.const"(self: *core.Instance, arg: Arg.F64, pop: void) f64 {
+        return arg.data;
+    }
+    pub fn @"0x45 i32.eqz"(self: *core.Instance, arg: Arg.None, pop: i32) i32 {
+        return @boolToInt(pop == 0);
+    }
+    pub fn @"0x46 i32.eq"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 == pop._1);
+    }
+    pub fn @"0x47 i32.ne"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 != pop._1);
+    }
+    pub fn @"0x48 i32.lt_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x49 i32.lt_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x4A i32.gt_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x4B i32.gt_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x4C i32.le_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+    pub fn @"0x4D i32.le_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+    pub fn @"0x4E i32.ge_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
+    }
+    pub fn @"0x4F i32.ge_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
     }
 };
