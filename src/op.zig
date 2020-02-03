@@ -233,30 +233,9 @@ const Impl = struct {
 
     // TODO: replace once Zig can define tuple types
     fn Pair(comptime T0: type, comptime T1: type) type {
-        const PairU32I32 = struct {
-            _0: u32,
-            _1: i32,
-        };
-        const PairU32I64 = struct {
-            _0: u32,
-            _1: i64,
-        };
-        const PairU32F32 = struct {
-            _0: u32,
-            _1: f32,
-        };
-        const PairU32F64 = struct {
-            _0: u32,
-            _1: f64,
-        };
-
-        if (T0 != u32) @compileError("Unknown pair: {" ++ @typeName(T0) ++ ", " ++ @typeName(T1) ++ "}");
-        return switch (T1) {
-            i32 => PairU32I32,
-            i64 => PairU32I64,
-            f32 => PairU32F32,
-            f64 => PairU32F64,
-            else => @compileError("Unknown pair: {" ++ @typeName(T0) ++ ", " ++ @typeName(T1) ++ "}"),
+        return struct {
+            _0: T0,
+            _1: T1,
         };
     }
 
