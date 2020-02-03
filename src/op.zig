@@ -148,7 +148,7 @@ const Meta = struct {
 };
 
 pub const sparse = blk: {
-    @setEvalBranchQuota(10000);
+    @setEvalBranchQuota(100000);
     const decls = publicFunctions(Impl);
     var result: [decls.len]Meta = undefined;
     for (decls) |decl, i| {
@@ -444,5 +444,127 @@ const Impl = struct {
     }
     pub fn @"0x4F i32.ge_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) i32 {
         return @boolToInt(pop._0 >= pop._1);
+    }
+
+    pub fn @"0x50 i64.eqz"(self: *core.Instance, arg: Arg.None, pop: i64) i32 {
+        return @boolToInt(pop == 0);
+    }
+    pub fn @"0x51 i64.eq"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 == pop._1);
+    }
+    pub fn @"0x52 i64.ne"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 != pop._1);
+    }
+    pub fn @"0x53 i64.lt_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x54 i64.lt_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x55 i64.gt_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x56 i64.gt_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x57 i64.le_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+    pub fn @"0x58 i64.le_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+    pub fn @"0x59 i64.ge_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
+    }
+    pub fn @"0x5A i64.ge_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
+    }
+    pub fn @"0x5B f32.eq"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 == pop._1);
+    }
+    pub fn @"0x5C f32.ne"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 != pop._1);
+    }
+    pub fn @"0x5D f32.lt"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x5E f32.gt"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x5F f32.le"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+
+    pub fn @"0x60 f32.ge"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
+    }
+    pub fn @"0x61 f64.eq"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 == pop._1);
+    }
+    pub fn @"0x62 f64.ne"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 != pop._1);
+    }
+    pub fn @"0x63 f64.lt"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 < pop._1);
+    }
+    pub fn @"0x64 f64.gt"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 > pop._1);
+    }
+    pub fn @"0x65 f64.le"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 <= pop._1);
+    }
+    pub fn @"0x66 f64.ge"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) i32 {
+        return @boolToInt(pop._0 >= pop._1);
+    }
+    pub fn @"0x67 i32.clz"(self: *core.Instance, arg: Arg.None, pop: i32) i32 {
+        return @clz(i32, pop);
+    }
+    pub fn @"0x68 i32.ctz"(self: *core.Instance, arg: Arg.None, pop: i32) i32 {
+        return @ctz(i32, pop);
+    }
+    pub fn @"0x69 i32.popcnt"(self: *core.Instance, arg: Arg.None, pop: i32) i32 {
+        return @popCount(i32, pop);
+    }
+    pub fn @"0x6A i32.add"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 +% pop._1;
+    }
+    pub fn @"0x6B i32.sub"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 -% pop._1;
+    }
+    pub fn @"0x6C i32.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 *% pop._1;
+    }
+    pub fn @"0x6D i32.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return @divTrunc(pop._0, pop._1);
+    }
+    pub fn @"0x6E i32.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+        return @divFloor(pop._0, pop._1);
+    }
+    pub fn @"0x6F i32.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        const abs_0 = std.math.absCast(pop._0);
+        const abs_1 = std.math.absCast(pop._1);
+        const val = @intCast(i32, @rem(abs_0, abs_1));
+        return if (pop._0 < 0) -val else val;
+    }
+    pub fn @"0x70 i32.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+        return @mod(pop._0, pop._1);
+    }
+    pub fn @"0x71 i32.and"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 & pop._1;
+    }
+    pub fn @"0x72 i32.or"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 | pop._1;
+    }
+    pub fn @"0x73 i32.xor"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+        return pop._0 ^ pop._1;
+    }
+    pub fn @"0x74 i32.shl"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, u32)) i32 {
+        return pop._0 << @truncate(u5, pop._1);
+    }
+    pub fn @"0x75 i32.shr_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, u32)) i32 {
+        return pop._0 >> @truncate(u5, pop._1);
+    }
+    pub fn @"0x76 i32.shr_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+        return pop._0 >> @truncate(u5, pop._1);
     }
 };
