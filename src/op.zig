@@ -546,6 +546,7 @@ const Impl = struct {
         const val = @intCast(i32, @rem(abs_0, abs_1));
         return if (pop._0 < 0) -val else val;
     }
+
     pub fn @"0x70 i32.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
         return @mod(pop._0, pop._1);
     }
@@ -566,5 +567,69 @@ const Impl = struct {
     }
     pub fn @"0x76 i32.shr_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
         return pop._0 >> @truncate(u5, pop._1);
+    }
+    pub fn @"0x77 i32.rotl"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+        return std.math.rotl(u32, pop._0, @truncate(u6, pop._1));
+    }
+    pub fn @"0x78 i32.rotr"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+        return std.math.rotr(u32, pop._0, @truncate(u6, pop._1));
+    }
+    pub fn @"0x79 i64.clz"(self: *core.Instance, arg: Arg.None, pop: i64) i64 {
+        return @clz(i64, pop);
+    }
+    pub fn @"0x7A i64.ctz"(self: *core.Instance, arg: Arg.None, pop: i64) i64 {
+        return @ctz(i64, pop);
+    }
+    pub fn @"0x7B i64.popcnt"(self: *core.Instance, arg: Arg.None, pop: i64) i64 {
+        return @popCount(i64, pop);
+    }
+    pub fn @"0x7C i64.add"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 +% pop._1;
+    }
+    pub fn @"0x7D i64.sub"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 -% pop._1;
+    }
+    pub fn @"0x7E i64.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 *% pop._1;
+    }
+    pub fn @"0x7F i64.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return @divTrunc(pop._0, pop._1);
+    }
+
+    pub fn @"0x80 i64.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+        return @divFloor(pop._0, pop._1);
+    }
+    pub fn @"0x81 i64.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        const abs_0 = std.math.absCast(pop._0);
+        const abs_1 = std.math.absCast(pop._1);
+        const val = @intCast(i64, @rem(abs_0, abs_1));
+        return if (pop._0 < 0) -val else val;
+    }
+    pub fn @"0x82 i64.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+        return @mod(pop._0, pop._1);
+    }
+    pub fn @"0x83 i64.and"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 & pop._1;
+    }
+    pub fn @"0x84 i64.or"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 | pop._1;
+    }
+    pub fn @"0x85 i64.xor"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+        return pop._0 ^ pop._1;
+    }
+    pub fn @"0x86 i64.shl"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, u64)) i64 {
+        return pop._0 << @truncate(u6, pop._1);
+    }
+    pub fn @"0x87 i64.shr_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, u64)) i64 {
+        return pop._0 >> @truncate(u6, pop._1);
+    }
+    pub fn @"0x88 i64.shr_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+        return pop._0 >> @truncate(u6, pop._1);
+    }
+    pub fn @"0x89 i64.rotl"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+        return std.math.rotl(u64, pop._0, @truncate(u7, pop._1));
+    }
+    pub fn @"0x8A i64.rotr"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+        return std.math.rotr(u64, pop._0, @truncate(u7, pop._1));
     }
 };
