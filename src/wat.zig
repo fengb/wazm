@@ -408,10 +408,15 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
                                     },
                                 );
                             },
-                            .I32 => blk: {
+                            .I32, .I64 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .integer, next.token.source);
                                 break :blk Op.Arg.init(next.data.integer);
+                            },
+                            .F32, .F64 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .float, next.token.source);
+                                break :blk Op.Arg.init(next.data.float);
                             },
                             .I32z, .Mem => {
                                 @panic(list[i].data.keyword);
