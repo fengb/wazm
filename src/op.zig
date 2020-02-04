@@ -657,4 +657,89 @@ const Impl = struct {
     pub fn @"0x8A i64.rotr"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
         return std.math.rotr(u64, pop._0, @truncate(u7, pop._1));
     }
+    pub fn @"0x8B f32.abs"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @fabs(pop);
+    }
+    pub fn @"0x8C f32.neg"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return -pop;
+    }
+    pub fn @"0x8D f32.ceil"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @ceil(pop);
+    }
+    pub fn @"0x8E f32.floor"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @floor(pop);
+    }
+    pub fn @"0x8F f32.trunc"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @trunc(pop);
+    }
+
+    pub fn @"0x90 f32.nearest"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @round(pop);
+    }
+    pub fn @"0x91 f32.sqrt"(self: *core.Instance, arg: Arg.None, pop: f32) f32 {
+        return @sqrt(pop);
+    }
+    pub fn @"0x92 f32.add"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return pop._0 + pop._1;
+    }
+    pub fn @"0x93 f32.sub"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return pop._0 - pop._1;
+    }
+    pub fn @"0x94 f32.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return pop._0 * pop._1;
+    }
+    pub fn @"0x95 f32.div"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return pop._0 / pop._1;
+    }
+    pub fn @"0x96 f32.min"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return std.math.min(pop._0, pop._1);
+    }
+    pub fn @"0x97 f32.max"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return std.math.max(pop._0, pop._1);
+    }
+    pub fn @"0x98 f32.copysign"(self: *core.Instance, arg: Arg.None, pop: Pair(f32, f32)) f32 {
+        return std.math.copysign(f32, pop._0, pop._1);
+    }
+    pub fn @"0x99 f64.abs"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @fabs(pop);
+    }
+    pub fn @"0x9A f64.neg"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return -pop;
+    }
+    pub fn @"0x9B f64.ceil"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @ceil(pop);
+    }
+    pub fn @"0x9C f64.floor"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @floor(pop);
+    }
+    pub fn @"0x9D f64.trunc"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @trunc(pop);
+    }
+    pub fn @"0x9E f64.nearest"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @round(pop);
+    }
+    pub fn @"0x9F f64.sqrt"(self: *core.Instance, arg: Arg.None, pop: f64) f64 {
+        return @sqrt(pop);
+    }
+    pub fn @"0xA0 f64.add"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return pop._0 + pop._1;
+    }
+    pub fn @"0xA1 f64.sub"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return pop._0 - pop._1;
+    }
+    pub fn @"0xA2 f64.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return pop._0 * pop._1;
+    }
+    pub fn @"0xA3 f64.div"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return pop._0 / pop._1;
+    }
+    pub fn @"0xA4 f64.min"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return std.math.min(pop._0, pop._1);
+    }
+    pub fn @"0xA5 f64.max"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return std.math.max(pop._0, pop._1);
+    }
+    pub fn @"0xA6 f64.copysign"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
+        return std.math.copysign(f64, pop._0, pop._1);
+    }
 };
