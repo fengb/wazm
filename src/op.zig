@@ -216,6 +216,10 @@ pub const all = blk: {
     var result = [_]?Meta{null} ** 256;
 
     for (sparse) |meta| {
+        if (result[meta.code] != null) {
+            var buf: [100]u8 = undefined;
+            @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.code, meta.name }));
+        }
         result[meta.code] = meta;
     }
     break :blk result;
@@ -392,11 +396,11 @@ const Impl = struct {
         const bytes = try self.memGet(pop._0, mem.offset, 1);
         std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop._1));
     }
-    pub fn @"0x3B i64.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
+    pub fn @"0x3D i64.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 2);
         std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop._1));
     }
-    pub fn @"0x3A i64.store32"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
+    pub fn @"0x3E i64.store32"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 4);
         std.mem.writeIntLittle(i32, bytes, @truncate(i32, pop._1));
     }
