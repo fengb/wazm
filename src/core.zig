@@ -46,6 +46,7 @@ pub const WasmTrap = error{
     Overflow,
     OutOfBounds,
     DivisionByZero,
+    InvalidConversionToInteger,
 };
 
 pub const Instance = struct {

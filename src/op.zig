@@ -746,4 +746,45 @@ const Impl = struct {
     pub fn @"0xA6 f64.copysign"(self: *core.Instance, arg: Arg.None, pop: Pair(f64, f64)) f64 {
         return std.math.copysign(f64, pop._0, pop._1);
     }
+    pub fn @"0xA7 i32.wrap_i64"(self: *core.Instance, arg: Arg.None, pop: u64) u32 {
+        return @truncate(u32, std.math.maxInt(u32) & pop);
+    }
+    pub fn @"0xA8 i32.trunc_f32_s"(self: *core.Instance, arg: Arg.None, pop: f32) !i32 {
+        return floatToInt(i32, f32, pop);
+    }
+    pub fn @"0xA9 i32.trunc_f32_u"(self: *core.Instance, arg: Arg.None, pop: f32) !u32 {
+        return floatToInt(u32, f32, pop);
+    }
+    pub fn @"0xAA i32.trunc_f64_s"(self: *core.Instance, arg: Arg.None, pop: f64) !i32 {
+        return floatToInt(i32, f64, pop);
+    }
+    pub fn @"0xAB i32.trunc_f64_u"(self: *core.Instance, arg: Arg.None, pop: f64) !u32 {
+        return floatToInt(u32, f64, pop);
+    }
+    pub fn @"0xAC i64.extend_i32_s"(self: *core.Instance, arg: Arg.None, pop: i64) i64 {
+        return pop;
+    }
+    pub fn @"0xAD i64.extend_i32_u"(self: *core.Instance, arg: Arg.None, pop: u32) u64 {
+        return pop;
+    }
+    pub fn @"0xAE i64.trunc_f32_s"(self: *core.Instance, arg: Arg.None, pop: f32) !i64 {
+        return floatToInt(i64, f32, pop);
+    }
+    pub fn @"0xAF i64.trunc_f32_u"(self: *core.Instance, arg: Arg.None, pop: f32) !u64 {
+        return floatToInt(u64, f32, pop);
+    }
+
+    pub fn @"0xB0 i64.trunc_f64_s"(self: *core.Instance, arg: Arg.None, pop: f64) !i64 {
+        return floatToInt(i64, f64, pop);
+    }
+    pub fn @"0xB1 i64.trunc_f64_u"(self: *core.Instance, arg: Arg.None, pop: f64) !u64 {
+        return floatToInt(u64, f64, pop);
+    }
+
+    fn floatToInt(comptime Dst: type, comptime Src: type, val: Src) !Dst {
+        if (!std.math.isFinite(val) or val > std.math.maxInt(Dst) or val < std.math.minInt(Dst)) {
+            return error.InvalidConversionToInteger;
+        }
+        return @floatToInt(Dst, val);
+    }
 };
