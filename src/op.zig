@@ -267,8 +267,6 @@ test "ops" {
 }
 
 const Impl = struct {
-    const WasmTrap = core.WasmTrap;
-
     // TODO: replace once Zig can define tuple types
     fn Pair(comptime T0: type, comptime T1: type) type {
         return struct {
@@ -277,8 +275,8 @@ const Impl = struct {
         };
     }
 
-    pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) WasmTrap!void {
-        return error.WasmTrap;
+    pub fn @"0x00 unreachable"(self: *core.Instance, arg: Arg.None, pop: void) !void {
+        return error.Unreachable;
     }
 
     pub fn @"0x01 nop"(self: *core.Instance, arg: Arg.None, pop: void) void {}
@@ -323,82 +321,82 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+    pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i32 {
         return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x29 i64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x29 i64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(i64, try self.memGet(pop, mem.offset, 8));
     }
-    pub fn @"0x2A f32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!f32 {
+    pub fn @"0x2A f32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) !f32 {
         return std.mem.readIntLittle(f32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!f64 {
+    pub fn @"0x2B f64.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) !f64 {
         return std.mem.readIntLittle(f64, try self.memGet(pop, mem.offset, 8));
     }
-    pub fn @"0x2C i32.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+    pub fn @"0x2C i32.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i32 {
         return std.mem.readIntLittle(i8, try self.memGet(pop, mem.offset, 1));
     }
-    pub fn @"0x2D i32.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!u32 {
+    pub fn @"0x2D i32.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) !u32 {
         return std.mem.readIntLittle(u8, try self.memGet(pop, mem.offset, 1));
     }
-    pub fn @"0x2E i32.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i32 {
+    pub fn @"0x2E i32.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i32 {
         return std.mem.readIntLittle(i16, try self.memGet(pop, mem.offset, 2));
     }
-    pub fn @"0x2F i32.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!u32 {
+    pub fn @"0x2F i32.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) !u32 {
         return std.mem.readIntLittle(u16, try self.memGet(pop, mem.offset, 2));
     }
 
-    pub fn @"0x30 i64.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x30 i64.load8_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(i8, try self.memGet(pop, mem.offset, 1));
     }
-    pub fn @"0x31 i64.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x31 i64.load8_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(u8, try self.memGet(pop, mem.offset, 1));
     }
-    pub fn @"0x32 i64.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x32 i64.load16_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(i16, try self.memGet(pop, mem.offset, 2));
     }
-    pub fn @"0x33 i64.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x33 i64.load16_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(u16, try self.memGet(pop, mem.offset, 2));
     }
-    pub fn @"0x34 i64.load32_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x34 i64.load32_s"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x35 i64.load32_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) WasmTrap!i64 {
+    pub fn @"0x35 i64.load32_u"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i64 {
         return std.mem.readIntLittle(u32, try self.memGet(pop, mem.offset, 4));
     }
-    pub fn @"0x36 i32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+    pub fn @"0x36 i32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 4);
         std.mem.writeIntLittle(i32, bytes, pop._1);
     }
-    pub fn @"0x37 i64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+    pub fn @"0x37 i64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 8);
         std.mem.writeIntLittle(i64, bytes, pop._1);
     }
-    pub fn @"0x38 f32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f32)) WasmTrap!void {
+    pub fn @"0x38 f32.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f32)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 4);
         std.mem.writeIntLittle(f32, bytes, pop._1);
     }
-    pub fn @"0x39 f64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f64)) WasmTrap!void {
+    pub fn @"0x39 f64.store"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, f64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 8);
         std.mem.writeIntLittle(f64, bytes, pop._1);
     }
-    pub fn @"0x3A i32.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+    pub fn @"0x3A i32.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 1);
         std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop._1));
     }
-    pub fn @"0x3B i32.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) WasmTrap!void {
+    pub fn @"0x3B i32.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i32)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 2);
         std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop._1));
     }
-    pub fn @"0x3C i64.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+    pub fn @"0x3C i64.store8"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 1);
         std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop._1));
     }
-    pub fn @"0x3B i64.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+    pub fn @"0x3B i64.store16"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 2);
         std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop._1));
     }
-    pub fn @"0x3A i64.store32"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) WasmTrap!void {
+    pub fn @"0x3A i64.store32"(self: *core.Instance, mem: Arg.Mem, pop: Pair(u32, i64)) !void {
         const bytes = try self.memGet(pop._0, mem.offset, 4);
         std.mem.writeIntLittle(i32, bytes, @truncate(i32, pop._1));
     }
