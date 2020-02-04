@@ -41,7 +41,11 @@ pub const Module = struct {
     };
 };
 
-pub const WasmTrap = error{WasmTrap};
+pub const WasmTrap = error{
+    WasmTrap,
+    Overflow,
+    DivisionByZero,
+};
 
 pub const Instance = struct {
     module: *Module,

@@ -147,6 +147,19 @@ const Meta = struct {
     }
 };
 
+fn errContains(comptime err_set: type, val: comptime_int) bool {
+    std.debug.assert(@typeInfo(err_set) == .ErrorSet);
+    const lookup = comptime blk: {
+        const error_count = 1 << @bitSizeOf(anyerror);
+        var result = [_]bool{false} ** error_count;
+        for (std.meta.fields(err_set)) |err| {
+            result[err.value] = true;
+        }
+        break :blk result;
+    };
+    return lookup[val];
+}
+
 pub const sparse = blk: {
     @setEvalBranchQuota(100000);
     const decls = publicFunctions(Impl);
@@ -167,7 +180,11 @@ pub const sparse = blk: {
             .name = decl.name[5..],
             .can_error = switch (@typeInfo(return_type)) {
                 .ErrorUnion => |eu_info| blk: {
-                    std.debug.assert(eu_info.error_set == core.WasmTrap);
+                    for (std.meta.fields(eu_info.error_set)) |err| {
+                        if (!errContains(core.WasmTrap, err.value)) {
+                            @compileError("Unhandleable error: " ++ err.name);
+                        }
+                    }
                     break :blk true;
                 },
                 else => false,
@@ -534,20 +551,25 @@ const Impl = struct {
     pub fn @"0x6C i32.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
         return pop._0 *% pop._1;
     }
-    pub fn @"0x6D i32.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+    pub fn @"0x6D i32.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) !i32 {
+        if (pop._1 == 0) return error.DivisionByZero;
+        if (pop._0 == std.math.minInt(i32) and pop._1 == -1) return error.Overflow;
         return @divTrunc(pop._0, pop._1);
     }
-    pub fn @"0x6E i32.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+    pub fn @"0x6E i32.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) !u32 {
+        if (pop._1 == 0) return error.DivisionByZero;
         return @divFloor(pop._0, pop._1);
     }
-    pub fn @"0x6F i32.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
+    pub fn @"0x6F i32.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) !i32 {
+        if (pop._1 == 0) return error.DivisionByZero;
         const abs_0 = std.math.absCast(pop._0);
         const abs_1 = std.math.absCast(pop._1);
         const val = @intCast(i32, @rem(abs_0, abs_1));
         return if (pop._0 < 0) -val else val;
     }
 
-    pub fn @"0x70 i32.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) u32 {
+    pub fn @"0x70 i32.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u32, u32)) !u32 {
+        if (pop._1 == 0) return error.DivisionByZero;
         return @mod(pop._0, pop._1);
     }
     pub fn @"0x71 i32.and"(self: *core.Instance, arg: Arg.None, pop: Pair(i32, i32)) i32 {
@@ -592,20 +614,25 @@ const Impl = struct {
     pub fn @"0x7E i64.mul"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
         return pop._0 *% pop._1;
     }
-    pub fn @"0x7F i64.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+    pub fn @"0x7F i64.div_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) !i64 {
+        if (pop._1 == 0) return error.DivisionByZero;
+        if (pop._0 == std.math.minInt(i64) and pop._1 == -1) return error.Overflow;
         return @divTrunc(pop._0, pop._1);
     }
 
-    pub fn @"0x80 i64.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+    pub fn @"0x80 i64.div_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) !u64 {
+        if (pop._1 == 0) return error.DivisionByZero;
         return @divFloor(pop._0, pop._1);
     }
-    pub fn @"0x81 i64.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
+    pub fn @"0x81 i64.rem_s"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) !i64 {
+        if (pop._1 == 0) return error.DivisionByZero;
         const abs_0 = std.math.absCast(pop._0);
         const abs_1 = std.math.absCast(pop._1);
         const val = @intCast(i64, @rem(abs_0, abs_1));
         return if (pop._0 < 0) -val else val;
     }
-    pub fn @"0x82 i64.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) u64 {
+    pub fn @"0x82 i64.rem_u"(self: *core.Instance, arg: Arg.None, pop: Pair(u64, u64)) !u64 {
+        if (pop._1 == 0) return error.DivisionByZero;
         return @mod(pop._0, pop._1);
     }
     pub fn @"0x83 i64.and"(self: *core.Instance, arg: Arg.None, pop: Pair(i64, i64)) i64 {
