@@ -780,6 +780,48 @@ const Impl = struct {
     pub fn @"0xB1 i64.trunc_f64_u"(self: *core.Instance, arg: Arg.None, pop: f64) !u64 {
         return floatToInt(u64, f64, pop);
     }
+    pub fn @"0xB2 f32.convert_i32_s"(self: *core.Instance, arg: Arg.None, pop: i32) f32 {
+        return @intToFloat(f32, pop);
+    }
+    pub fn @"0xB3 f32.convert_i32_u"(self: *core.Instance, arg: Arg.None, pop: u32) f32 {
+        return @intToFloat(f32, pop);
+    }
+    pub fn @"0xB4 f32.convert_i64_s"(self: *core.Instance, arg: Arg.None, pop: i64) f32 {
+        return @intToFloat(f32, pop);
+    }
+    pub fn @"0xB5 f32.convert_i64_u"(self: *core.Instance, arg: Arg.None, pop: u64) f32 {
+        return @intToFloat(f32, pop);
+    }
+    pub fn @"0xB6 f32.demote_f64"(self: *core.Instance, arg: Arg.None, pop: f64) f32 {
+        return @floatCast(f32, pop);
+    }
+    pub fn @"0xB7 f64.convert_i32_s"(self: *core.Instance, arg: Arg.None, pop: i32) f64 {
+        return @intToFloat(f64, pop);
+    }
+    pub fn @"0xB8 f64.convert_i32_u"(self: *core.Instance, arg: Arg.None, pop: u32) f64 {
+        return @intToFloat(f64, pop);
+    }
+    pub fn @"0xB9 f64.convert_i64_s"(self: *core.Instance, arg: Arg.None, pop: i64) f64 {
+        return @intToFloat(f64, pop);
+    }
+    pub fn @"0xBA f64.convert_i64_u"(self: *core.Instance, arg: Arg.None, pop: u64) f64 {
+        return @intToFloat(f64, pop);
+    }
+    pub fn @"0xBB f64.promote_f32"(self: *core.Instance, arg: Arg.None, pop: f32) f64 {
+        return @floatCast(f64, pop);
+    }
+    pub fn @"0xBC i32.reinterpret_f32"(self: *core.Instance, arg: Arg.None, pop: f32) i32 {
+        return @bitCast(i32, pop);
+    }
+    pub fn @"0xBD i64.reinterpret_f64"(self: *core.Instance, arg: Arg.None, pop: f64) i64 {
+        return @bitCast(i64, pop);
+    }
+    pub fn @"0xBE f32.reinterpret_i32"(self: *core.Instance, arg: Arg.None, pop: i32) f32 {
+        return @bitCast(f32, pop);
+    }
+    pub fn @"0xBF f64.reinterpret_i64"(self: *core.Instance, arg: Arg.None, pop: i64) f64 {
+        return @bitCast(f64, pop);
+    }
 
     fn floatToInt(comptime Dst: type, comptime Src: type, val: Src) !Dst {
         if (!std.math.isFinite(val) or val > std.math.maxInt(Dst) or val < std.math.minInt(Dst)) {
