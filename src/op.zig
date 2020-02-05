@@ -1,6 +1,99 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const core = @import("core.zig");
+const Op = @This();
+
+code: u8,
+name: []const u8,
+can_error: bool,
+arg: struct {
+    kind: ArgKind,
+    bytes: u8,
+},
+push: StackChange,
+pop: [2]StackChange,
+
+pub const sparse = blk: {
+    @setEvalBranchQuota(100000);
+    const decls = publicFunctions(Impl);
+    var result: [decls.len]Op = undefined;
+    for (decls) |decl, i| {
+        std.debug.assert(decl.name[0] == '0');
+        std.debug.assert(decl.name[1] == 'x');
+        std.debug.assert(decl.name[4] == ' ');
+
+        const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
+        const ctx_type = args[0].arg_type.?;
+        const arg_type = args[1].arg_type.?;
+        const pop_type = args[2].arg_type.?;
+        const return_type = decl.data.Fn.return_type;
+
+        result[i] = .{
+            .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
+            .name = decl.name[5..],
+            .can_error = switch (@typeInfo(return_type)) {
+                .ErrorUnion => |eu_info| blk: {
+                    for (std.meta.fields(eu_info.error_set)) |err| {
+                        if (!errContains(core.WasmTrap, err.value)) {
+                            @compileError("Unhandleable error: " ++ err.name);
+                        }
+                    }
+                    break :blk true;
+                },
+                else => false,
+            },
+            .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
+            .push = StackChange.from(return_type),
+            .pop = switch (@typeInfo(pop_type)) {
+                .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
+                .Struct => |s_info| blk: {
+                    std.debug.assert(s_info.fields.len == 2);
+                    std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "_0"));
+                    std.debug.assert(std.mem.eql(u8, s_info.fields[1].name, "_1"));
+                    break :blk .{
+                        StackChange.from(s_info.fields[0].field_type),
+                        StackChange.from(s_info.fields[1].field_type),
+                    };
+                },
+                else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
+            },
+        };
+    }
+
+    std.sort.sort(Op, &result, Op.lessThan);
+
+    break :blk result;
+};
+
+pub const all = blk: {
+    var result = [_]?Op{null} ** 256;
+
+    for (sparse) |meta| {
+        if (result[meta.code] != null) {
+            var buf: [100]u8 = undefined;
+            @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.code, meta.name }));
+        }
+        result[meta.code] = meta;
+    }
+    break :blk result;
+};
+
+pub fn byName(needle: []const u8) ?Op {
+    var curr: usize = 0;
+    var size = sparse.len;
+    while (size > 0) {
+        const offset = size % 2;
+
+        size /= 2;
+        const meta = sparse[curr + size];
+        switch (std.mem.order(u8, needle, meta.name)) {
+            .lt => {},
+            .eq => return meta,
+            .gt => curr += size + offset,
+        }
+    }
+    return null;
+}
 
 pub const StackChange = enum {
     Void,
@@ -114,50 +207,6 @@ test "Arg smoke" {
     }
 }
 
-const Meta = struct {
-    code: u8,
-    name: []const u8,
-    can_error: bool,
-    arg: struct {
-        kind: ArgKind,
-        bytes: u8,
-    },
-    push: StackChange,
-    pop: [2]StackChange,
-
-    fn sortKey(self: Meta) u128 {
-        var bytes = [_]u8{0} ** 16;
-        if (bytes[4] == '.') {
-            std.mem.copy(u8, bytes[0..3], self.name[0..3]);
-            std.mem.copy(u8, bytes[3..], self.name[5..std.math.min(self.name.len, 18)]);
-        } else {
-            std.mem.copy(u8, &bytes, self.name[0..std.math.min(self.name.len, 16)]);
-        }
-        return std.mem.readIntBig(u128, &bytes);
-    }
-
-    fn lessThan(lhs: Meta, rhs: Meta) bool {
-        return lhs.sortKey() < rhs.sortKey();
-    }
-
-    pub fn format(
-        self: Meta,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
-    ) Errors!void {
-        return std.fmt.format(
-            context,
-            Errors,
-            output,
-            "Op( 0x{x} \"{}\" {{{} {}b}} [{},{}]->[{}] )",
-            .{ self.code, self.name, @tagName(self.arg.kind), self.arg.bytes, @tagName(self.pop[0]), @tagName(self.pop[1]), @tagName(self.push) },
-        );
-    }
-};
-
 fn errContains(comptime err_set: type, val: comptime_int) bool {
     std.debug.assert(@typeInfo(err_set) == .ErrorSet);
     const lookup = comptime blk: {
@@ -171,86 +220,19 @@ fn errContains(comptime err_set: type, val: comptime_int) bool {
     return lookup[val];
 }
 
-pub const sparse = blk: {
-    @setEvalBranchQuota(100000);
-    const decls = publicFunctions(Impl);
-    var result: [decls.len]Meta = undefined;
-    for (decls) |decl, i| {
-        std.debug.assert(decl.name[0] == '0');
-        std.debug.assert(decl.name[1] == 'x');
-        std.debug.assert(decl.name[4] == ' ');
-
-        const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
-        const ctx_type = args[0].arg_type.?;
-        const arg_type = args[1].arg_type.?;
-        const pop_type = args[2].arg_type.?;
-        const return_type = decl.data.Fn.return_type;
-
-        result[i] = .{
-            .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
-            .name = decl.name[5..],
-            .can_error = switch (@typeInfo(return_type)) {
-                .ErrorUnion => |eu_info| blk: {
-                    for (std.meta.fields(eu_info.error_set)) |err| {
-                        if (!errContains(core.WasmTrap, err.value)) {
-                            @compileError("Unhandleable error: " ++ err.name);
-                        }
-                    }
-                    break :blk true;
-                },
-                else => false,
-            },
-            .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
-            .push = StackChange.from(return_type),
-            .pop = switch (@typeInfo(pop_type)) {
-                .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
-                .Struct => |s_info| blk: {
-                    std.debug.assert(s_info.fields.len == 2);
-                    std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "_0"));
-                    std.debug.assert(std.mem.eql(u8, s_info.fields[1].name, "_1"));
-                    break :blk .{
-                        StackChange.from(s_info.fields[0].field_type),
-                        StackChange.from(s_info.fields[1].field_type),
-                    };
-                },
-                else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
-            },
-        };
+fn sortKey(self: Op) u128 {
+    var bytes = [_]u8{0} ** 16;
+    if (bytes[4] == '.') {
+        std.mem.copy(u8, bytes[0..3], self.name[0..3]);
+        std.mem.copy(u8, bytes[3..], self.name[5..std.math.min(self.name.len, 18)]);
+    } else {
+        std.mem.copy(u8, &bytes, self.name[0..std.math.min(self.name.len, 16)]);
     }
+    return std.mem.readIntBig(u128, &bytes);
+}
 
-    std.sort.sort(Meta, &result, Meta.lessThan);
-
-    break :blk result;
-};
-
-pub const all = blk: {
-    var result = [_]?Meta{null} ** 256;
-
-    for (sparse) |meta| {
-        if (result[meta.code] != null) {
-            var buf: [100]u8 = undefined;
-            @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.code, meta.name }));
-        }
-        result[meta.code] = meta;
-    }
-    break :blk result;
-};
-
-pub fn byName(needle: []const u8) ?Meta {
-    var curr: usize = 0;
-    var size = sparse.len;
-    while (size > 0) {
-        const offset = size % 2;
-
-        size /= 2;
-        const meta = sparse[curr + size];
-        switch (std.mem.order(u8, needle, meta.name)) {
-            .lt => {},
-            .eq => return meta,
-            .gt => curr += size + offset,
-        }
-    }
-    return null;
+fn lessThan(lhs: Op, rhs: Op) bool {
+    return lhs.sortKey() < rhs.sortKey();
 }
 
 fn publicFunctions(comptime T: type) []builtin.TypeInfo.Declaration {

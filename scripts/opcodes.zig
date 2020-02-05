@@ -8,7 +8,7 @@ pub fn main() !void {
 
 fn outputConsole(file: *std.fs.File.OutStream) !void {
     var os = file.outStream();
-    for (self.op.all) |op, i| {
+    for (self.Op.all) |op, i| {
         var buf = [_]u8{' '} ** 13;
         if (op) |o| {
             std.mem.copy(u8, &buf, o.name);
@@ -30,7 +30,7 @@ fn outputHtml(fos: *std.fs.File.OutStream) !void {
     }
     try fos.stream.print("</tr>\n", .{});
 
-    for (self.op.all) |op, i| {
+    for (self.Op.all) |op, i| {
         if (i % 0x10 == 0x0) {
             try fos.stream.print("<tr>\n<th>{X}_</th>\n", .{i / 16});
         }
