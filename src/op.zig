@@ -125,8 +125,19 @@ const Meta = struct {
     push: StackChange,
     pop: [2]StackChange,
 
+    fn sortKey(self: Meta) u128 {
+        var bytes = [_]u8{0} ** 16;
+        if (bytes[4] == '.') {
+            std.mem.copy(u8, bytes[0..3], self.name[0..3]);
+            std.mem.copy(u8, bytes[3..], self.name[5..std.math.min(self.name.len, 18)]);
+        } else {
+            std.mem.copy(u8, &bytes, self.name[0..std.math.min(self.name.len, 16)]);
+        }
+        return std.mem.readIntBig(u128, &bytes);
+    }
+
     fn lessThan(lhs: Meta, rhs: Meta) bool {
-        return std.mem.lessThan(u8, lhs.name, rhs.name);
+        return lhs.sortKey() < rhs.sortKey();
     }
 
     pub fn format(
@@ -176,7 +187,7 @@ pub const sparse = blk: {
         const return_type = decl.data.Fn.return_type;
 
         result[i] = .{
-            .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch unreachable,
+            .code = std.fmt.parseInt(u8, decl.name[2..4], 16) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
             .name = decl.name[5..],
             .can_error = switch (@typeInfo(return_type)) {
                 .ErrorUnion => |eu_info| blk: {
