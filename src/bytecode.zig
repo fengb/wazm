@@ -24,7 +24,7 @@ import: []struct {
 },
 
 /// Code=3
-function: []Index.Type,
+function: []u32,
 
 /// Code=4
 table: []struct {
@@ -92,7 +92,6 @@ custom: []struct {
 },
 
 const Index = struct {
-    const Type = enum(u32) { _ };
     const Table = enum(u32) { _ };
     const Function = enum(u32) { _ };
     const Memory = enum(u32) { _ };
@@ -134,6 +133,43 @@ const ResizableLimits = struct {
 
 const InitExpr = struct {};
 
+fn readVarint(comptime T: type, in_stream: var) !T {
+    const U = @TypeOf(std.math.absCast(@as(T, 0)));
+    const S = std.math.Log2Int(T);
+
+    var unsigned_result: U = 0;
+    var shift: S = 0;
+    while (true) : (shift = try std.math.add(S, shift, 7)) {
+        const byte = try in_stream.readByte();
+        unsigned_result += try std.math.shlExact(U, 0x7F & byte, shift);
+
+        if (byte & 0x80 == 0) {
+            if (U == T) {
+                return unsigned_result;
+            } else if (0x40 != 0 and !@addWithOverflow(S, shift, 7, &shift)) {
+                return @bitCast(T, unsigned_result) | @as(T, -1) << shift;
+            } else {
+                return @bitCast(T, unsigned_result);
+            }
+        }
+    }
+}
+
+test "readVarint" {
+    {
+        var in = std.io.SliceInStream.init("\xE5\x8E\x26");
+        std.testing.expectEqual(@as(u32, 624485), try readVarint(u32, &in.stream));
+        in.pos = 0;
+        std.testing.expectEqual(@as(u21, 624485), try readVarint(u21, &in.stream));
+    }
+    {
+        var in = std.io.SliceInStream.init("\xC0\xBB\x78");
+        std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, &in.stream));
+        in.pos = 0;
+        std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, &in.stream));
+    }
+}
+
 pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
     const signature = try in_stream.readIntLittle(u32);
     if (signature != magic_number) {
@@ -153,7 +189,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
 
     while (true) {
         const id = try in_stream.readByte();
-        const payload_len = try in_stream.readIntLittle(u32);
+        const payload_len = try readVarint(u32, in_stream);
 
         switch (id) {
             0x0 => Custom,
