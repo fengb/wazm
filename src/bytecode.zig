@@ -179,6 +179,57 @@ fn expectEos(in_stream: var) !void {
     }
 }
 
+/// A stream that can only read a fixed number of bytes.
+pub fn FixedInStream(comptime Error: type) type {
+    return struct {
+        const Self = @This();
+        pub const Stream = std.io.InStream(Error);
+
+        stream: Stream,
+
+        underlying_stream: *Stream,
+
+        size: usize,
+        remaining: usize,
+
+        pub fn init(underlying_stream: *Stream, size: usize) Self {
+            return Self{
+                .size = size,
+                .remaining = size,
+
+                .underlying_stream = underlying_stream,
+                .stream = Stream{ .readFn = readFn },
+            };
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(Self, "stream", in_stream);
+
+            const bytes = try self.underlying_stream.read(dest[0..std.math.min(dest.len, self.remaining)]);
+            self.remaining -= bytes;
+            return bytes;
+        }
+    };
+}
+
+test "FixedInStream" {
+    var string = "hello world";
+    var slice_in_stream = std.io.SliceInStream.init(string);
+
+    var fixed_in_stream = FixedInStream(std.io.SliceInStream.Error).init(&slice_in_stream.stream, 5);
+    std.testing.expectEqual(@as(u8, 'h'), try fixed_in_stream.stream.readByte());
+    std.testing.expectEqual(@as(u8, 'e'), try fixed_in_stream.stream.readByte());
+    std.testing.expectEqual(@as(u8, 'l'), try fixed_in_stream.stream.readByte());
+    std.testing.expectEqual(@as(u8, 'l'), try fixed_in_stream.stream.readByte());
+    std.testing.expectEqual(@as(u8, 'o'), try fixed_in_stream.stream.readByte());
+    std.testing.expectError(error.EndOfStream, fixed_in_stream.stream.readByte());
+}
+
+fn ErrorOf(func: var) type {
+    const R = @typeInfo(@TypeOf(func)).Fn.return_type;
+    return @typeInfo(R).ErrorUnion.error_set;
+}
+
 // --- Before ---
 // const count = try readVarint(u32, &payload.stream);
 // result.field = arena.allocator.alloc(@TypeOf(result.field), count);
@@ -217,12 +268,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             else => return err,
         };
         const payload_len = try readVarint(u32, in_stream);
-        // TODO: use a fixed buffer
-        if (payload_len > buffer.len) {
-            buffer = arena.allocator.realloc(buffer, payload_len);
-        }
-        try in_stream.readNoEof(buffer[0..payload_len]);
-        const payload = std.io.SliceInStream.init(&buf);
+        const payload = FixedInStream(in_stream.readFn).init(in_stream, payload_len);
 
         switch (id) {
             0x1 => {
