@@ -65,15 +65,14 @@ start: ?struct {
 /// Code=9
 element: []struct {
     index: Index.Table,
-    offset: i32,
+    offset: InitExpr,
     elems: []Index.Function,
 } = .{},
 
 /// Code=10
 code: []struct {
     locals: []struct {
-        count: u32,
-        @"type": Type.Value,
+        @"type": []Type.Value,
     },
     code: []const u8,
 } = .{},
@@ -284,7 +283,6 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                     const return_count = try readVarint(u1, &payload.stream);
                     t.return_type = if (return_count == 0) null else try payload.stream.readEnum(Type.Value);
                 }
-                expectEos(&payload.stream);
             },
             0x2 => {
                 const count = try readVarint(u32, &payload.stream);
@@ -297,20 +295,106 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
 
                     i.kind = try payload.stream.readEnum(ExternalKind);
                 }
-                expectEos(&payload.stream);
             },
-            0x3 => Function,
-            0x4 => Table,
-            0x5 => Memory,
-            0x6 => Global,
-            0x7 => Export,
-            0x8 => Start,
-            0x9 => Element,
-            0x10 => Code,
-            0x11 => Data,
-            0x0 => Custom,
+            0x3 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.function, count)) |*f| {
+                    const index = try readVarint(u32, &payload.stream);
+                    f.* = @intToEnum(Index.FuncType, index);
+                }
+            },
+            0x4 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.table, count)) |*t| {
+                    t.element_type = try payload.stream.readEnum(Type.Elem);
+
+                    const flags = try readVarint(u1, &payload.stream);
+                    t.limits.initial = try readVarint(u32, &payload.stream);
+                    t.limits.maximum = if (flags == 0) null else try readVarint(u32, &payload.stream);
+                }
+            },
+            0x5 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.memory, count)) |*m| {
+                    const flags = try readVarint(u1, &payload.stream);
+                    m.limits.initial = try readVarint(u32, &payload.stream);
+                    m.limits.maximum = if (flags == 0) null else try readVarint(u32, &payload.stream);
+                }
+            },
+            0x6 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.global, count)) |*g| {
+                    g.@"type".content_type = try payload.stream.readEnum(Type.Value);
+                    g.@"type".mutability = try readVarint(u1, Type.Value) == 1;
+                    g.init = .{}; // FIXME
+                }
+            },
+            0x7 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.@"export", count)) |*e| {
+                    const field_len = try readVarint(u32, &payload.stream);
+                    try payload.stream.readNoEof(result.allocInto(&e.field, field_len));
+
+                    const kind = try payload.stream.readEnum(ExternalKind);
+                    const index = try readVarint(u32, &payload.stream);
+                    e.index = switch (kind) {
+                        .Table => .{ .Table = @intToEnum(Index.Table) },
+                        .Function => .{ .Function = @intToEnum(Index.Function) },
+                        .Memory => .{ .Memory = @intToEnum(Index.Memory) },
+                        .Global => .{ .Global = @intToEnum(Index.Global) },
+                    };
+                }
+            },
+            0x8 => {
+                const index = try readVarint(u32, &payload.stream);
+                result.start = .{
+                    .index = @intToEnum(Index.Function, index),
+                };
+            },
+            0x9 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.element, count)) |*e| {
+                    const index = try readVarint(u32, &payload.stream);
+                    e.index = @intToEnum(Index.Table, index);
+                    e.offset = .{}; // FIXME
+
+                    const num_elem = try readVarint(u32, &payload.stream);
+                    for (result.allocInto(&e.elems, count)) |*func| {
+                        const func_index = try readVarint(u32, &payload.stream);
+                        func.* = @intToEnum(Index.Function, func_index);
+                    }
+                }
+            },
+            0x10 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.code, count)) |*c| {
+                    const body_size = try readVarint(u32, &payload.stream);
+                    const local_count = try readVarint(u32, &payload.stream);
+                    for (result.allocInto(&c.locals, local_count)) |*l| {
+                        const var_count = try readVarint(u32, &payload.stream);
+                        for (result.allocInto(&l.@"type", local_count)) |*t| {
+                            t.* = try payload.stream.readEnum(Type.Value);
+                        }
+                    }
+                    // FIXME: this is probably the wrong size
+                    try payload.stream.readNoEof(result.allocInto(&c.code, body_size));
+                }
+            },
+            0x11 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.data, count)) |*d| {
+                    const index = try readVarint(u32, &payload.stream);
+                    d.index = @intToEnum(Index.Memory, index);
+                    d.offset = .{}; // FIXME
+
+                    const size = try readVarint(u32, &payload.stream);
+                    try payload.stream.readNoEof(result.allocInto(&d.data, body_size));
+                }
+            },
+            0x0 => @panic("TODO"),
             else => return error.InvalidFormat,
         }
+        try expectEos(&payload.stream);
     }
 
     return result;
