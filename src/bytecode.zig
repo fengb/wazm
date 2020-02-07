@@ -14,28 +14,28 @@ arena: std.heap.ArenaAllocator,
     form: i7,
     param_types: []Type.Value,
     return_type: Type.Value,
-},
+} = .{},
 
 /// Code=2
 import: []struct {
     module: []const u8,
     field: []const u8,
     kind: ExternalKind,
-},
+} = .{},
 
 /// Code=3
-function: []u32,
+function: []Index.FuncType,
 
 /// Code=4
 table: []struct {
     element_type: Type.Elem,
     limits: ResizableLimits,
-},
+} = .{},
 
 /// Code=5
 memory: []struct {
     limits: ResizableLimits,
-},
+} = .{},
 
 /// Code=6
 global: []struct {
@@ -44,7 +44,7 @@ global: []struct {
         mutability: bool,
     },
     init: InitExpr,
-},
+} = .{},
 
 /// Code=7
 @"export": []struct {
@@ -55,19 +55,19 @@ global: []struct {
         Memory: Index.Memory,
         Global: Index.Global,
     },
-},
+} = .{},
 
 /// Code=8
-start: struct {
+start: ?struct {
     index: Index.Function,
-},
+} = null,
 
 /// Code=9
 element: []struct {
     index: Index.Table,
     offset: i32,
     elems: []Index.Function,
-},
+} = .{},
 
 /// Code=10
 code: []struct {
@@ -76,22 +76,23 @@ code: []struct {
         @"type": Type.Value,
     },
     code: []const u8,
-},
+} = .{},
 
 /// Code=11
 data: []struct {
     index: Index.Memory,
     offset: InitExpr,
     data: []const u8,
-},
+} = .{},
 
 /// Code=0
 custom: []struct {
     name: []const u8,
     payload: []const u8,
-},
+} = .{},
 
 const Index = struct {
+    const FuncType = enum(u32) { _ };
     const Table = enum(u32) { _ };
     const Function = enum(u32) { _ };
     const Memory = enum(u32) { _ };
@@ -170,6 +171,30 @@ test "readVarint" {
     }
 }
 
+fn expectEos(in_stream: var) !void {
+    var tmp: [1]u8 = undefined;
+    const len = try self.read(&result);
+    if (len != 0) {
+        return error.NotEndOfStream;
+    }
+}
+
+// --- Before ---
+// const count = try readVarint(u32, &payload.stream);
+// result.field = arena.allocator.alloc(@TypeOf(result.field), count);
+// for (result.field) |*item| {
+//
+// --- After ---
+// const count = try readVarint(u32, &payload.stream);
+// for (self.allocInto(&result.field, count)) |*item| {
+fn allocInto(self: Bytecode, ptr_to_slice: var, count: usize) std.meta.Child(@TypeOf(ptr_to_slice)) {
+    const Slice = std.meta.Child(@TypeOf(ptr_to_slice));
+    std.debug.assert(@typeInfo(Slice).Pointer.size == .Slice);
+
+    ptr_to_slice.* = self.arena.allocator.alloc(std.meta.Child(Slice), count);
+    return ptr_to_slice.*;
+}
+
 pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
     const signature = try in_stream.readIntLittle(u32);
     if (signature != magic_number) {
@@ -181,20 +206,53 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
         return error.InvalidFormat;
     }
 
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-
-    var funcs = std.ArrayList(core.Module.Func).init(&arena.allocator);
-    var exports = std.ArrayList(core.Module.Export).init(&arena.allocator);
+    var result = Bytecode{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+    };
+    errdefer result.arena.deinit();
 
     while (true) {
-        const id = try in_stream.readByte();
+        const id = in_stream.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
         const payload_len = try readVarint(u32, in_stream);
+        // TODO: use a fixed buffer
+        if (payload_len > buffer.len) {
+            buffer = arena.allocator.realloc(buffer, payload_len);
+        }
+        try in_stream.readNoEof(buffer[0..payload_len]);
+        const payload = std.io.SliceInStream.init(&buf);
 
         switch (id) {
-            0x0 => Custom,
-            0x1 => FuncType,
-            0x2 => Import,
+            0x1 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.@"type", count)) |*t| {
+                    t.form = try readVarint(i7, &payload.stream);
+
+                    const param_count = try readVarint(u32, &payload.stream);
+                    for (result.allocInto(&t.param_types, count)) |*param_type| {
+                        param_type.* = try payload.stream.readEnum(Type.Value);
+                    }
+
+                    const return_count = try readVarint(u1, &payload.stream);
+                    t.return_type = if (return_count == 0) null else try payload.stream.readEnum(Type.Value);
+                }
+                expectEos(&payload.stream);
+            },
+            0x2 => {
+                const count = try readVarint(u32, &payload.stream);
+                for (result.allocInto(&result.import, count)) |*i| {
+                    const module_len = try readVarint(u32, &payload.stream);
+                    try payload.stream.readNoEof(result.allocInto(&i.module, module_len));
+
+                    const field_len = try readVarint(u32, &payload.stream);
+                    try payload.stream.readNoEof(result.allocInto(&i.field, field_len));
+
+                    i.kind = try payload.stream.readEnum(ExternalKind);
+                }
+                expectEos(&payload.stream);
+            },
             0x3 => Function,
             0x4 => Table,
             0x5 => Memory,
@@ -202,17 +260,19 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             0x7 => Export,
             0x8 => Start,
             0x9 => Element,
-            0xA => Code,
-            0xB => Data,
+            0x10 => Code,
+            0x11 => Data,
+            0x0 => Custom,
             else => return error.InvalidFormat,
         }
     }
 
-    return error.Nop;
+    return result;
 }
 
-pub fn deinit(self: Bytecode, allocator: *std.heap.Allocator) void {
+pub fn deinit(self: *Bytecode, allocator: *std.heap.Allocator) void {
     self.arena.deinit();
+    self.* = .{ .arena = self.arena };
 }
 
 pub fn toModule(self: Bytecode, allocator: *std.heap.Allocator) !core.Module {
