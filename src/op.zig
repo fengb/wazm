@@ -45,7 +45,7 @@ pub const sparse = blk: {
             .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
             .push = StackChange.from(return_type),
             .pop = switch (@typeInfo(pop_type)) {
-                .Void, .Int, .Float => .{ StackChange.from(pop_type), .Void },
+                .Void, .Int, .Float, .Union => .{ StackChange.from(pop_type), .Void },
                 .Struct => |s_info| blk: {
                     std.debug.assert(s_info.fields.len == 2);
                     std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "_0"));
@@ -101,6 +101,7 @@ pub const StackChange = enum {
     I64,
     F32,
     F64,
+    Poly,
 
     fn from(comptime T: type) StackChange {
         return switch (T) {
@@ -109,9 +110,10 @@ pub const StackChange = enum {
             i64, u64 => .I64,
             f32 => .F32,
             f64 => .F64,
+            core.Value => .Poly,
             else => switch (@typeInfo(T)) {
                 .ErrorUnion => |eu_info| from(eu_info.payload),
-                else => @compileError("Unsupported type:" ++ @typeName(T)),
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
         };
     }
@@ -145,11 +147,19 @@ pub const Arg = packed struct {
         const bytes = 4;
         data: i32,
         _pad: u64,
+
+        fn unsigned(self: @This()) u32 {
+            return @bitCast(u32, self.data);
+        }
     };
     pub const I64 = packed union {
         const bytes = 8;
         data: i64,
         _pad: u64,
+
+        fn unsigned(self: @This()) u32 {
+            return @bitCast(u32, self.data);
+        }
     };
     pub const F32 = packed union {
         const bytes = 4;
@@ -314,10 +324,26 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x20 local.get"(self: *core.Instance, arg: Arg.I32, pop: i32) i32 {
-        @panic("TODO");
+    pub fn @"0x1A drop"(self: *core.Instance, arg: Arg.None, pop: core.Value) void {
+        // Do nothing with the popped value
     }
 
+    pub fn @"0x20 local.get"(self: *core.Instance, arg: Arg.I32, pop: void) core.Value {
+        return self.locals.get(arg.unsigned());
+    }
+    pub fn @"0x21 local.set"(self: *core.Instance, arg: Arg.I32, pop: core.Value) void {
+        self.locals.set(arg.unsigned(), pop);
+    }
+    pub fn @"0x22 local.tee"(self: *core.Instance, arg: Arg.I32, pop: core.Value) core.Value {
+        self.locals.set(arg.unsigned(), pop);
+        return pop;
+    }
+    pub fn @"0x23 global.get"(self: *core.Instance, arg: Arg.I32, pop: void) core.Value {
+        return self.globals.get(arg.unsigned());
+    }
+    pub fn @"0x24 global.set"(self: *core.Instance, arg: Arg.I32, pop: core.Value) void {
+        self.globals.set(arg.unsigned(), pop);
+    }
     pub fn @"0x28 i32.load"(self: *core.Instance, mem: Arg.Mem, pop: u32) !i32 {
         return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
     }
