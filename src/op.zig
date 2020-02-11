@@ -11,7 +11,7 @@ arg: struct {
     bytes: u8,
 },
 push: StackChange,
-pop: [2]StackChange,
+pop: [3]StackChange,
 
 pub const sparse = blk: {
     @setEvalBranchQuota(100000);
@@ -45,14 +45,16 @@ pub const sparse = blk: {
             .arg = .{ .bytes = arg_type.bytes, .kind = ArgKind.from(arg_type) },
             .push = StackChange.from(return_type),
             .pop = switch (@typeInfo(pop_type)) {
-                .Void, .Int, .Float, .Union => .{ StackChange.from(pop_type), .Void },
+                .Void, .Int, .Float, .Union => .{ StackChange.from(pop_type), .Void, .Void },
                 .Struct => |s_info| blk: {
-                    std.debug.assert(s_info.fields.len == 2);
+                    std.debug.assert(s_info.fields.len == 3);
                     std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "_0"));
                     std.debug.assert(std.mem.eql(u8, s_info.fields[1].name, "_1"));
+                    std.debug.assert(std.mem.eql(u8, s_info.fields[2].name, "_2"));
                     break :blk .{
                         StackChange.from(s_info.fields[0].field_type),
                         StackChange.from(s_info.fields[1].field_type),
+                        StackChange.from(s_info.fields[2].field_type),
                     };
                 },
                 else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
@@ -265,12 +267,21 @@ test "ops" {
     std.testing.expectEqual(nop.push, .Void);
     std.testing.expectEqual(nop.pop[0], .Void);
     std.testing.expectEqual(nop.pop[1], .Void);
+    std.testing.expectEqual(nop.pop[2], .Void);
 
     const i32_load = byName("i32.load").?;
     std.testing.expectEqual(i32_load.arg.bytes, 8);
     std.testing.expectEqual(i32_load.push, .I32);
     std.testing.expectEqual(i32_load.pop[0], .I32);
     std.testing.expectEqual(i32_load.pop[1], .Void);
+    std.testing.expectEqual(i32_load.pop[2], .Void);
+
+    const select = byName("select").?;
+    std.testing.expectEqual(select.arg.bytes, 0);
+    std.testing.expectEqual(select.push, .Poly);
+    std.testing.expectEqual(select.pop[0], .Poly);
+    std.testing.expectEqual(select.pop[1], .Poly);
+    std.testing.expectEqual(select.pop[2], .I32);
 }
 
 const Impl = struct {
@@ -279,6 +290,16 @@ const Impl = struct {
         return struct {
             _0: T0,
             _1: T1,
+            _2: void,
+        };
+    }
+
+    // TODO: replace once Zig can define tuple types
+    fn Triple(comptime T0: type, comptime T1: type, comptime T2: type) type {
+        return struct {
+            _0: T0,
+            _1: T1,
+            _2: T2,
         };
     }
 
@@ -326,6 +347,9 @@ const Impl = struct {
 
     pub fn @"0x1A drop"(self: *core.Instance, arg: Arg.None, pop: core.Value) void {
         // Do nothing with the popped value
+    }
+    pub fn @"0x1B select"(self: *core.Instance, arg: Arg.None, pop: Triple(core.Value, core.Value, i32)) core.Value {
+        return if (pop._2 == 0) pop._0 else pop._1;
     }
 
     pub fn @"0x20 local.get"(self: *core.Instance, arg: Arg.I32, pop: void) core.Value {
