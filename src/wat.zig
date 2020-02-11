@@ -392,31 +392,41 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
                     const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
                     try instrs.append(.{
                         .opcode = op.code,
-                        .arg = switch (op.arg.kind) {
-                            .None => Op.Arg{},
+                        .arg = switch (op.arg_kind) {
+                            .Void => Op.Arg{ .Void = {} },
                             .Type => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .keyword, next.token.source);
-                                break :blk Op.Arg.init(
-                                    switch (swhash(next.data.keyword)) {
-                                        swhash("void") => Op.Arg.Type.Void,
-                                        swhash("i32") => Op.Arg.Type.I32,
-                                        swhash("i64") => Op.Arg.Type.I64,
-                                        swhash("f32") => Op.Arg.Type.F32,
-                                        swhash("f64") => Op.Arg.Type.F64,
+                                break :blk Op.Arg{
+                                    .Type = switch (swhash(next.data.keyword)) {
+                                        swhash("void") => .Void,
+                                        swhash("i32") => .I32,
+                                        swhash("i64") => .I64,
+                                        swhash("f32") => .F32,
+                                        swhash("f64") => .F64,
                                         else => return ctx.fail(next.token.source),
                                     },
-                                );
+                                };
                             },
-                            .I32, .I64 => blk: {
+                            .I32 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk Op.Arg.init(next.data.integer);
+                                break :blk Op.Arg{ .I32 = @intCast(i32, next.data.integer) };
                             },
-                            .F32, .F64 => blk: {
+                            .I64 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .integer, next.token.source);
+                                break :blk Op.Arg{ .I64 = @intCast(i64, next.data.integer) };
+                            },
+                            .F32 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .float, next.token.source);
-                                break :blk Op.Arg.init(next.data.float);
+                                break :blk Op.Arg{ .F32 = @floatCast(f32, next.data.float) };
+                            },
+                            .F64 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .float, next.token.source);
+                                break :blk Op.Arg{ .F64 = @floatCast(f64, next.data.float) };
                             },
                             .I32z, .Mem => {
                                 @panic(list[i].data.keyword);
