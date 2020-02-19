@@ -2,8 +2,7 @@ const std = @import("std");
 const core = @import("core.zig");
 const Op = @import("op.zig");
 
-const magic_number = std.mem.readIntLittle("\x00asm");
-const version = 1;
+const magic_number = std.mem.readIntNative(u32, "\x00asm");
 
 const Bytecode = @This();
 
@@ -13,15 +12,15 @@ arena: std.heap.ArenaAllocator,
 @"type": []struct {
     form: i7,
     param_types: []Type.Value,
-    return_type: Type.Value,
-} = .{},
+    return_type: ?Type.Value,
+},
 
 /// Code=2
 import: []struct {
     module: []const u8,
     field: []const u8,
     kind: ExternalKind,
-} = .{},
+},
 
 /// Code=3
 function: []Index.FuncType,
@@ -30,12 +29,12 @@ function: []Index.FuncType,
 table: []struct {
     element_type: Type.Elem,
     limits: ResizableLimits,
-} = .{},
+},
 
 /// Code=5
 memory: []struct {
     limits: ResizableLimits,
-} = .{},
+},
 
 /// Code=6
 global: []struct {
@@ -44,7 +43,7 @@ global: []struct {
         mutability: bool,
     },
     init: InitExpr,
-} = .{},
+},
 
 /// Code=7
 @"export": []struct {
@@ -55,19 +54,19 @@ global: []struct {
         Memory: Index.Memory,
         Global: Index.Global,
     },
-} = .{},
+},
 
 /// Code=8
 start: ?struct {
     index: Index.Function,
-} = null,
+},
 
 /// Code=9
 element: []struct {
     index: Index.Table,
     offset: InitExpr,
     elems: []Index.Function,
-} = .{},
+},
 
 /// Code=10
 code: []struct {
@@ -75,20 +74,36 @@ code: []struct {
         @"type": []Type.Value,
     },
     code: []const u8,
-} = .{},
+},
 
 /// Code=11
 data: []struct {
     index: Index.Memory,
     offset: InitExpr,
     data: []const u8,
-} = .{},
+},
 
 /// Code=0
 custom: []struct {
     name: []const u8,
     payload: []const u8,
-} = .{},
+},
+
+fn init(arena: std.heap.ArenaAllocator) Bytecode {
+    var result: Bytecode = undefined;
+    result.arena = arena;
+
+    inline for (std.meta.fields(Bytecode)) |field| {
+        if (comptime !std.mem.eql(u8, field.name, "arena")) {
+            @field(result, field.name) = switch (@typeInfo(field.field_type)) {
+                .Pointer => |ptr_info| &[0]ptr_info.child{},
+                .Optional => null,
+                else => @compileError("No idea how to initialize " ++ field.name ++ " " ++ @typeName(field.field_type)),
+            };
+        }
+    }
+    return result;
+}
 
 const Index = struct {
     const FuncType = enum(u32) { _ };
@@ -119,7 +134,7 @@ const Type = struct {
     };
 };
 
-const ExternalKind = enum(u8) {
+const ExternalKind = enum(u7) {
     Function = 0,
     Table = 1,
     Memory = 2,
@@ -146,7 +161,7 @@ fn readVarint(comptime T: type, in_stream: var) !T {
     var shift: S = 0;
     while (true) : (shift = try std.math.add(S, shift, 7)) {
         const byte = try in_stream.readByte();
-        unsigned_result += try std.math.shlExact(U, 0x7F & byte, shift);
+        unsigned_result += try std.math.shlExact(U, byte & 0x7F, shift);
 
         if (byte & 0x80 == 0) {
             if (U == T) {
@@ -183,9 +198,14 @@ test "readVarint" {
     }
 }
 
+fn readVarintEnum(comptime E: type, in_stream: var) !E {
+    const raw = try readVarint(std.meta.TagType(E), in_stream);
+    return try std.meta.intToEnum(E, raw);
+}
+
 fn expectEos(in_stream: var) !void {
     var tmp: [1]u8 = undefined;
-    const len = try self.read(&result);
+    const len = try in_stream.read(&tmp);
     if (len != 0) {
         return error.NotEndOfStream;
     }
@@ -237,8 +257,8 @@ test "FixedInStream" {
     std.testing.expectError(error.EndOfStream, fixed_in_stream.stream.readByte());
 }
 
-fn ErrorOf(func: var) type {
-    const R = @typeInfo(@TypeOf(func)).Fn.return_type;
+fn ErrorOf(comptime Func: type) type {
+    const R = @typeInfo(Func).Fn.return_type.?;
     return @typeInfo(R).ErrorUnion.error_set;
 }
 
@@ -250,15 +270,18 @@ fn ErrorOf(func: var) type {
 // --- After ---
 // const count = try readVarint(u32, &payload.stream);
 // for (self.allocInto(&result.field, count)) |*item| {
-fn allocInto(self: Bytecode, ptr_to_slice: var, count: usize) std.meta.Child(@TypeOf(ptr_to_slice)) {
+fn allocInto(self: *Bytecode, ptr_to_slice: var, count: usize) !std.meta.Child(@TypeOf(ptr_to_slice)) {
     const Slice = std.meta.Child(@TypeOf(ptr_to_slice));
     std.debug.assert(@typeInfo(Slice).Pointer.size == .Slice);
 
-    ptr_to_slice.* = self.arena.allocator.alloc(std.meta.Child(Slice), count);
+    ptr_to_slice.* = try self.arena.allocator.alloc(std.meta.Child(Slice), count);
     return ptr_to_slice.*;
 }
 
 pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
+    const ReadFn = @TypeOf(in_stream.readFn);
+    const ReadError = ErrorOf(ReadFn);
+
     const signature = try in_stream.readIntLittle(u32);
     if (signature != magic_number) {
         return error.InvalidFormat;
@@ -269,9 +292,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
         return error.InvalidFormat;
     }
 
-    var result = Bytecode{
-        .arena = std.heap.ArenaAllocator.init(allocator),
-    };
+    var result = Bytecode.init(std.heap.ArenaAllocator.init(allocator));
     errdefer result.arena.deinit();
 
     while (true) {
@@ -280,46 +301,49 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             else => return err,
         };
         const payload_len = try readVarint(u32, in_stream);
-        const payload = FixedInStream(in_stream.readFn).init(in_stream, payload_len);
+        var payload = FixedInStream(ReadError).init(in_stream, payload_len);
 
         switch (id) {
             0x1 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.@"type", count)) |*t| {
+                for (try result.allocInto(&result.@"type", count)) |*t| {
                     t.form = try readVarint(i7, &payload.stream);
 
                     const param_count = try readVarint(u32, &payload.stream);
-                    for (result.allocInto(&t.param_types, count)) |*param_type| {
-                        param_type.* = try payload.stream.readEnum(Type.Value);
+                    for (try result.allocInto(&t.param_types, count)) |*param_type| {
+                        param_type.* = try readVarintEnum(Type.Value, &payload.stream);
                     }
 
                     const return_count = try readVarint(u1, &payload.stream);
-                    t.return_type = if (return_count == 0) null else try payload.stream.readEnum(Type.Value);
+                    t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, &payload.stream);
                 }
             },
             0x2 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.import, count)) |*i| {
+                for (try result.allocInto(&result.import, count)) |*i| {
                     const module_len = try readVarint(u32, &payload.stream);
-                    try payload.stream.readNoEof(result.allocInto(&i.module, module_len));
+                    const module_data = try result.arena.allocator.alloc(u8, module_len);
+                    try payload.stream.readNoEof(module_data);
+                    i.module = module_data;
 
                     const field_len = try readVarint(u32, &payload.stream);
-                    try payload.stream.readNoEof(result.allocInto(&i.field, field_len));
+                    const field_data = try result.arena.allocator.alloc(u8, field_len);
+                    try payload.stream.readNoEof(field_data);
+                    i.field = field_data;
 
-                    i.kind = try payload.stream.readEnum(ExternalKind);
+                    i.kind = try readVarintEnum(ExternalKind, &payload.stream);
                 }
             },
             0x3 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.function, count)) |*f| {
-                    const index = try readVarint(u32, &payload.stream);
-                    f.* = @intToEnum(Index.FuncType, index);
+                for (try result.allocInto(&result.function, count)) |*f| {
+                    f.* = try readVarintEnum(Index.FuncType, &payload.stream);
                 }
             },
             0x4 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.table, count)) |*t| {
-                    t.element_type = try payload.stream.readEnum(Type.Elem);
+                for (try result.allocInto(&result.table, count)) |*t| {
+                    t.element_type = try readVarintEnum(Type.Elem, &payload.stream);
 
                     const flags = try readVarint(u1, &payload.stream);
                     t.limits.initial = try readVarint(u32, &payload.stream);
@@ -328,7 +352,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             },
             0x5 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.memory, count)) |*m| {
+                for (try result.allocInto(&result.memory, count)) |*m| {
                     const flags = try readVarint(u1, &payload.stream);
                     m.limits.initial = try readVarint(u32, &payload.stream);
                     m.limits.maximum = if (flags == 0) null else try readVarint(u32, &payload.stream);
@@ -336,25 +360,27 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             },
             0x6 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.global, count)) |*g| {
-                    g.@"type".content_type = try payload.stream.readEnum(Type.Value);
-                    g.@"type".mutability = try readVarint(u1, Type.Value) == 1;
+                for (try result.allocInto(&result.global, count)) |*g| {
+                    g.@"type".content_type = try readVarintEnum(Type.Value, &payload.stream);
+                    g.@"type".mutability = (try readVarint(u1, &payload.stream)) == 1;
                     g.init = .{}; // FIXME
                 }
             },
             0x7 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.@"export", count)) |*e| {
+                for (try result.allocInto(&result.@"export", count)) |*e| {
                     const field_len = try readVarint(u32, &payload.stream);
-                    try payload.stream.readNoEof(result.allocInto(&e.field, field_len));
+                    const field_data = try result.arena.allocator.alloc(u8, field_len);
+                    try payload.stream.readNoEof(field_data);
+                    e.field = field_data;
 
-                    const kind = try payload.stream.readEnum(ExternalKind);
+                    const kind = try readVarintEnum(ExternalKind, &payload.stream);
                     const index = try readVarint(u32, &payload.stream);
                     e.index = switch (kind) {
-                        .Table => .{ .Table = @intToEnum(Index.Table) },
-                        .Function => .{ .Function = @intToEnum(Index.Function) },
-                        .Memory => .{ .Memory = @intToEnum(Index.Memory) },
-                        .Global => .{ .Global = @intToEnum(Index.Global) },
+                        .Table => .{ .Table = @intToEnum(Index.Table, index) },
+                        .Function => .{ .Function = @intToEnum(Index.Function, index) },
+                        .Memory => .{ .Memory = @intToEnum(Index.Memory, index) },
+                        .Global => .{ .Global = @intToEnum(Index.Global, index) },
                     };
                 }
             },
@@ -366,13 +392,13 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             },
             0x9 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.element, count)) |*e| {
+                for (try result.allocInto(&result.element, count)) |*e| {
                     const index = try readVarint(u32, &payload.stream);
                     e.index = @intToEnum(Index.Table, index);
                     e.offset = .{}; // FIXME
 
                     const num_elem = try readVarint(u32, &payload.stream);
-                    for (result.allocInto(&e.elems, count)) |*func| {
+                    for (try result.allocInto(&e.elems, count)) |*func| {
                         const func_index = try readVarint(u32, &payload.stream);
                         func.* = @intToEnum(Index.Function, func_index);
                     }
@@ -380,28 +406,32 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             },
             0x10 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.code, count)) |*c| {
+                for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, &payload.stream);
                     const local_count = try readVarint(u32, &payload.stream);
-                    for (result.allocInto(&c.locals, local_count)) |*l| {
+                    for (try result.allocInto(&c.locals, local_count)) |*l| {
                         const var_count = try readVarint(u32, &payload.stream);
-                        for (result.allocInto(&l.@"type", local_count)) |*t| {
-                            t.* = try payload.stream.readEnum(Type.Value);
+                        for (try result.allocInto(&l.@"type", local_count)) |*t| {
+                            t.* = try readVarintEnum(Type.Value, &payload.stream);
                         }
                     }
                     // FIXME: this is probably the wrong size
-                    try payload.stream.readNoEof(result.allocInto(&c.code, body_size));
+                    const code_data = try result.arena.allocator.alloc(u8, body_size);
+                    try payload.stream.readNoEof(code_data);
+                    c.code = code_data;
                 }
             },
             0x11 => {
                 const count = try readVarint(u32, &payload.stream);
-                for (result.allocInto(&result.data, count)) |*d| {
+                for (try result.allocInto(&result.data, count)) |*d| {
                     const index = try readVarint(u32, &payload.stream);
                     d.index = @intToEnum(Index.Memory, index);
                     d.offset = .{}; // FIXME
 
                     const size = try readVarint(u32, &payload.stream);
-                    try payload.stream.readNoEof(result.allocInto(&d.data, body_size));
+                    const data = try result.arena.allocator.alloc(u8, size);
+                    try payload.stream.readNoEof(data);
+                    d.data = data;
                 }
             },
             0x0 => @panic("TODO"),
@@ -413,12 +443,12 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
     return result;
 }
 
-pub fn deinit(self: *Bytecode, allocator: *std.heap.Allocator) void {
+pub fn deinit(self: *Bytecode) void {
     self.arena.deinit();
-    self.* = .{ .arena = self.arena };
+    self.* = Bytecode.init(self.arena);
 }
 
-pub fn toModule(self: Bytecode, allocator: *std.heap.Allocator) !core.Module {
+pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !core.Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
@@ -435,4 +465,11 @@ pub fn load(allocator: *std.mem.Allocator, in_stream: var) !core.Module {
     defer bytecode.deinit();
 
     return bytecode.toModule(allocator);
+}
+
+test "empty module" {
+    const empty = [_]u8{ 0, 'a', 's', 'm', 1, 0, 0, 0 };
+    var ios = std.io.SliceInStream.init(&empty);
+    var module = try Bytecode.parse(std.testing.allocator, &ios.stream);
+    defer module.deinit();
 }
