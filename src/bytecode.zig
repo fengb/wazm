@@ -137,6 +137,11 @@ fn readVarint(comptime T: type, in_stream: var) !T {
     const U = @TypeOf(std.math.absCast(@as(T, 0)));
     const S = std.math.Log2Int(T);
 
+    if (std.meta.bitCount(T) < 8) {
+        const byte = try in_stream.readByte();
+        return @bitCast(T, try std.math.cast(U, byte));
+    }
+
     var unsigned_result: U = 0;
     var shift: S = 0;
     while (true) : (shift = try std.math.add(S, shift, 7)) {
@@ -167,6 +172,14 @@ test "readVarint" {
         std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, &in.stream));
         in.pos = 0;
         std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, &in.stream));
+    }
+    {
+        var in = std.io.SliceInStream.init("\x7F");
+        std.testing.expectEqual(@as(i7, -1), try readVarint(i7, &in.stream));
+        in.pos = 0;
+        std.testing.expectEqual(@as(i21, -1), try readVarint(i21, &in.stream));
+        in.pos = 0;
+        std.testing.expectEqual(@as(i32, -1), try readVarint(i32, &in.stream));
     }
 }
 
