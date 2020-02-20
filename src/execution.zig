@@ -5,49 +5,32 @@ const Module = @import("module.zig");
 pub const Execution = @This();
 
 instance: *Module.Instance,
-stack: []u8,
+stack: []u64,
 stack_top: usize,
 
 current_frame: Frame,
 
-// TODO: fix this crap
-locals: StackLookup,
-globals: StackLookup,
+pub fn getLocal(self: Execution, idx: usize) Value {
+    @panic("TODO");
+}
 
-const StackLookup = struct {
-    memory: []u8,
-    lookup_meta: []struct {
-        offset: usize,
-        typ: Module.Type,
-    },
+pub fn setLocal(self: Execution, idx: usize, value: var) void {
+    @panic("TODO");
+}
 
-    pub fn get(self: StackLookup, num: usize) Module.Value {
-        const meta = self.lookup_meta[num];
-        return switch (meta.typ) {
-            .I32 => .{ .I32 = std.mem.readIntLittle(i32, self.ptr32(meta.offset)) },
-            .I64 => .{ .I64 = std.mem.readIntLittle(i64, self.ptr64(meta.offset)) },
-            .F32 => .{ .F32 = std.mem.readIntLittle(f32, self.ptr32(meta.offset)) },
-            .F64 => .{ .F64 = std.mem.readIntLittle(f64, self.ptr64(meta.offset)) },
-        };
-    }
+pub fn getGlobal(self: Execution, idx: usize) Value {
+    @panic("TODO");
+}
 
-    pub fn set(self: StackLookup, num: usize, value: Module.Value) void {
-        const meta = self.lookup_meta[num];
-        switch (meta.typ) {
-            .I32 => std.mem.writeIntLittle(i32, self.ptr32(meta.offset), value.I32),
-            .I64 => std.mem.writeIntLittle(i64, self.ptr64(meta.offset), value.I64),
-            .F32 => std.mem.writeIntLittle(f32, self.ptr32(meta.offset), value.F32),
-            .F64 => std.mem.writeIntLittle(f64, self.ptr64(meta.offset), value.F64),
-        }
-    }
+pub fn setGlobal(self: Execution, idx: usize, value: var) void {
+    @panic("TODO");
+}
 
-    fn ptr32(self: StackLookup, offset: usize) *[4]u8 {
-        return @ptrCast(*[4]u8, &self.memory[offset]);
-    }
-
-    fn ptr64(self: StackLookup, offset: usize) *[8]u8 {
-        return @ptrCast(*[8]u8, &self.memory[offset]);
-    }
+pub const Value = packed union {
+    I32: i32,
+    I64: i64,
+    F32: f32,
+    F64: f64,
 };
 
 pub fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
@@ -104,10 +87,10 @@ const Frame = struct {
     }
 };
 
-fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) void {
+fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) Module.Value {
     var ctx = Execution{
         .instance = instance,
-        .stack = stack,
+        .stack = @bytesToSlice([]u64, stack),
         .stack_top = stack.len,
         .current_frame = Frame.terminus(),
     };
@@ -117,10 +100,12 @@ fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module
         ctx.push(param);
     }
 
-    ctx.call(id);
+    const result = ctx.call(id);
+    std.debug.assert(self.stack_top == self.stack.len);
+    return result;
 }
 
-fn call(self: *Execution, func_id: Index.Function) void {
+fn call(self: *Execution, func_id: Index.Function) Value {
     const func = self.instance.funcs[func_id];
     // TODO: validate params on the callstack
     for (func.locals) |local| {

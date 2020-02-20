@@ -120,7 +120,7 @@ pub const StackChange = enum {
             i64, u64 => .I64,
             f32 => .F32,
             f64 => .F64,
-            Module.Value => .Poly,
+            Execution.Value => .Poly,
             else => switch (@typeInfo(T)) {
                 .ErrorUnion => |eu_info| from(eu_info.payload),
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
@@ -284,28 +284,28 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x1A drop"(self: *Execution, arg: void, pop: Module.Value) void {
+    pub fn @"0x1A drop"(self: *Execution, arg: void, pop: Execution.Value) void {
         // Do nothing with the popped value
     }
-    pub fn @"0x1B select"(self: *Execution, arg: void, pop: Triple(Module.Value, Module.Value, i32)) Module.Value {
+    pub fn @"0x1B select"(self: *Execution, arg: void, pop: Triple(Execution.Value, Execution.Value, i32)) Execution.Value {
         return if (pop._2 == 0) pop._0 else pop._1;
     }
 
-    pub fn @"0x20 local.get"(self: *Execution, arg: u32, pop: void) Module.Value {
-        return self.locals.get(arg);
+    pub fn @"0x20 local.get"(self: *Execution, arg: u32, pop: void) Execution.Value {
+        return self.getLocal(arg);
     }
-    pub fn @"0x21 local.set"(self: *Execution, arg: u32, pop: Module.Value) void {
-        self.locals.set(arg, pop);
+    pub fn @"0x21 local.set"(self: *Execution, arg: u32, pop: Execution.Value) void {
+        self.setLocal(arg, pop);
     }
-    pub fn @"0x22 local.tee"(self: *Execution, arg: u32, pop: Module.Value) Module.Value {
-        self.locals.set(arg, pop);
+    pub fn @"0x22 local.tee"(self: *Execution, arg: u32, pop: Execution.Value) Execution.Value {
+        self.setLocal(arg, pop);
         return pop;
     }
-    pub fn @"0x23 global.get"(self: *Execution, arg: u32, pop: void) Module.Value {
-        return self.globals.get(arg);
+    pub fn @"0x23 global.get"(self: *Execution, arg: u32, pop: void) Execution.Value {
+        return self.getGlobal(arg);
     }
-    pub fn @"0x24 global.set"(self: *Execution, arg: u32, pop: Module.Value) void {
-        self.globals.set(arg, pop);
+    pub fn @"0x24 global.set"(self: *Execution, arg: u32, pop: Execution.Value) void {
+        self.setGlobal(arg, pop);
     }
     pub fn @"0x28 i32.load"(self: *Execution, mem: Arg.Mem, pop: u32) !i32 {
         return std.mem.readIntLittle(i32, try self.memGet(pop, mem.offset, 4));
