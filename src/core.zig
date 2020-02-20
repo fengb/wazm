@@ -9,6 +9,7 @@ pub const Module = struct {
 
     pub fn deinit(self: *Module) void {
         self.arena.deinit();
+        self.memory = 0;
         self.funcs = &[0]Func{};
         self.exports = &[0]Export{};
     }

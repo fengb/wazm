@@ -2,7 +2,7 @@ const std = @import("std");
 const core = @import("core.zig");
 const Op = @import("op.zig");
 
-const magic_number = std.mem.readIntNative(u32, "\x00asm");
+const magic_number = std.mem.readIntLittle(u32, "\x00asm");
 
 const Bytecode = @This();
 
@@ -448,20 +448,20 @@ pub fn deinit(self: *Bytecode) void {
     self.* = Bytecode.init(self.arena);
 }
 
-pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !core.Module {
+pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) core.Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
-    return .{
-        .memory = @intCast(u32, memory),
-        .funcs = funcs.toOwnedSlice(),
-        .exports = exports.toOwnedSlice(),
+    return core.Module{
+        .memory = 0,
+        .funcs = &[0]core.Module.Func{},
+        .exports = &[0]core.Module.Export{},
         .arena = arena,
     };
 }
 
 pub fn load(allocator: *std.mem.Allocator, in_stream: var) !core.Module {
-    const bytecode = try Bytecode.parse(allocator, in_stream);
+    var bytecode = try Bytecode.parse(allocator, in_stream);
     defer bytecode.deinit();
 
     return bytecode.toModule(allocator);
@@ -470,6 +470,10 @@ pub fn load(allocator: *std.mem.Allocator, in_stream: var) !core.Module {
 test "empty module" {
     const empty = [_]u8{ 0, 'a', 's', 'm', 1, 0, 0, 0 };
     var ios = std.io.SliceInStream.init(&empty);
-    var module = try Bytecode.parse(std.testing.allocator, &ios.stream);
+    var module = try Bytecode.load(std.testing.allocator, &ios.stream);
     defer module.deinit();
+
+    std.testing.expectEqual(@as(usize, 0), module.memory);
+    std.testing.expectEqual(@as(usize, 0), module.funcs.len);
+    std.testing.expectEqual(@as(usize, 0), module.exports.len);
 }
