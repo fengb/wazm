@@ -1,6 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const core = @import("core.zig");
+const Module = @import("module.zig");
 const Op = @import("op.zig");
 
 fn swhash(string: []const u8) u128 {
@@ -66,7 +65,7 @@ const ParseContext = struct {
 
     fn fail(self: *ParseContext, location: usize) error{ParseError} {
         self.err = .{ .location = location, .message = null };
-        if (builtin.is_test) {
+        if (std.builtin.is_test) {
             std.debug.warn("#Debug\n{}\n", .{self});
         }
         return error.ParseError;
@@ -329,7 +328,7 @@ fn pop(list: []Sexpr.Elem, i: *usize) ?Sexpr.Elem {
     return list[i.*];
 }
 
-pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
+pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
     var ctx = ParseContext.init(string);
     var sexpr = try Sexpr.parse(&ctx, allocator);
     defer sexpr.deinit();
@@ -341,8 +340,8 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
     try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
 
     var memory: usize = 0;
-    var funcs = std.ArrayList(core.Module.Func).init(&arena.allocator);
-    var exports = std.ArrayList(core.Module.Export).init(&arena.allocator);
+    var funcs = std.ArrayList(Module.Func).init(&arena.allocator);
+    var exports = std.StringHashMap(Module.Export).init(&arena.allocator);
 
     for (sexpr.root[1..]) |elem| {
         try ctx.validate(elem.data == .list, elem.token.source);
@@ -359,9 +358,9 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
                 memory = list[1].data.integer;
             },
             swhash("func") => {
-                var params = std.ArrayList(core.Module.Type).init(&arena.allocator);
-                var locals = std.ArrayList(core.Module.Type).init(&arena.allocator);
-                var result: ?core.Module.Type = null;
+                var params = std.ArrayList(Module.Type).init(&arena.allocator);
+                var locals = std.ArrayList(Module.Type).init(&arena.allocator);
+                var result: ?Module.Type = null;
 
                 var i: usize = 1;
                 while (i < list.len and list[i].data == .list) : (i += 1) {
@@ -369,10 +368,10 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
                     try ctx.validate(pair.len == 2, list[i].token.source);
                     try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
                     const typ = switch (swhash(pair[1].data.keyword)) {
-                        swhash("i32") => core.Module.Type.I32,
-                        swhash("i64") => core.Module.Type.I64,
-                        swhash("f32") => core.Module.Type.F32,
-                        swhash("f64") => core.Module.Type.F64,
+                        swhash("i32") => Module.Type.I32,
+                        swhash("i64") => Module.Type.I64,
+                        swhash("f32") => Module.Type.F32,
+                        swhash("f64") => Module.Type.F64,
                         else => return ctx.fail(pair[1].token.source),
                     };
 
@@ -385,7 +384,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
                     }
                 }
 
-                var instrs = std.ArrayList(core.Module.Instr).init(&arena.allocator);
+                var instrs = std.ArrayList(Module.Instr).init(&arena.allocator);
                 while (pop(list, &i)) |val| {
                     try ctx.validate(val.data == .keyword, val.token.source);
 
@@ -447,10 +446,10 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !core.Module {
         }
     }
 
-    return core.Module{
+    return Module{
         .memory = @intCast(u32, memory),
         .funcs = funcs.toOwnedSlice(),
-        .exports = exports.toOwnedSlice(),
+        .exports = exports,
         .arena = arena,
     };
 }
@@ -462,7 +461,7 @@ test "parse" {
 
         std.testing.expectEqual(@as(u32, 0), module.memory);
         std.testing.expectEqual(@as(usize, 0), module.funcs.len);
-        std.testing.expectEqual(@as(usize, 0), module.exports.len);
+        std.testing.expectEqual(@as(usize, 0), module.exports.count());
     }
     {
         var module = try parse(std.testing.allocator, "(module (memory 42))");
@@ -486,13 +485,13 @@ test "parse" {
         std.testing.expectEqual(@as(?[]const u8, null), func.name);
 
         std.testing.expectEqual(@as(usize, 2), func.params.len);
-        std.testing.expectEqual(core.Module.Type.I32, func.params[0]);
-        std.testing.expectEqual(core.Module.Type.F32, func.params[1]);
+        std.testing.expectEqual(Module.Type.I32, func.params[0]);
+        std.testing.expectEqual(Module.Type.F32, func.params[1]);
 
         std.testing.expectEqual(@as(usize, 1), func.locals.len);
-        std.testing.expectEqual(core.Module.Type.F64, func.locals[0]);
+        std.testing.expectEqual(Module.Type.F64, func.locals[0]);
 
-        std.testing.expectEqual(core.Module.Type.I64, func.result.?);
+        std.testing.expectEqual(Module.Type.I64, func.result.?);
 
         std.testing.expectEqual(@as(usize, 3), func.instrs.len);
     }

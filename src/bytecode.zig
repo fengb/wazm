@@ -1,5 +1,5 @@
 const std = @import("std");
-const core = @import("core.zig");
+const Module = @import("module.zig");
 const Op = @import("op.zig");
 
 const magic_number = std.mem.readIntLittle(u32, "\x00asm");
@@ -448,19 +448,19 @@ pub fn deinit(self: *Bytecode) void {
     self.* = Bytecode.init(self.arena);
 }
 
-pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) core.Module {
+pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
-    return core.Module{
+    return Module{
         .memory = 0,
-        .funcs = &[0]core.Module.Func{},
-        .exports = &[0]core.Module.Export{},
+        .funcs = &[0]Module.Func{},
+        .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
         .arena = arena,
     };
 }
 
-pub fn load(allocator: *std.mem.Allocator, in_stream: var) !core.Module {
+pub fn load(allocator: *std.mem.Allocator, in_stream: var) !Module {
     var bytecode = try Bytecode.parse(allocator, in_stream);
     defer bytecode.deinit();
 
@@ -475,5 +475,5 @@ test "empty module" {
 
     std.testing.expectEqual(@as(usize, 0), module.memory);
     std.testing.expectEqual(@as(usize, 0), module.funcs.len);
-    std.testing.expectEqual(@as(usize, 0), module.exports.len);
+    std.testing.expectEqual(@as(usize, 0), module.exports.count());
 }
