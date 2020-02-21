@@ -186,19 +186,8 @@ fn errContains(comptime err_set: type, val: comptime_int) bool {
     return lookup[val];
 }
 
-fn sortKey(self: Op) u128 {
-    var bytes = [_]u8{0} ** 16;
-    if (bytes[4] == '.') {
-        std.mem.copy(u8, bytes[0..3], self.name[0..3]);
-        std.mem.copy(u8, bytes[3..], self.name[5..std.math.min(self.name.len, 18)]);
-    } else {
-        std.mem.copy(u8, &bytes, self.name[0..std.math.min(self.name.len, 16)]);
-    }
-    return std.mem.readIntBig(u128, &bytes);
-}
-
 fn lessThan(lhs: Op, rhs: Op) bool {
-    return lhs.sortKey() < rhs.sortKey();
+    return std.mem.lessThan(u8, lhs.name, rhs.name);
 }
 
 fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {
