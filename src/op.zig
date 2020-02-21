@@ -8,8 +8,8 @@ code: u8,
 name: []const u8,
 can_error: bool,
 arg_kind: @TagType(Arg),
-push: StackChange,
-pop: [3]StackChange,
+push: ?StackChange,
+pop: []StackChange,
 
 pub const sparse = blk: {
     @setEvalBranchQuota(100000);
@@ -51,19 +51,20 @@ pub const sparse = blk: {
                 Arg.Mem => .Mem,
                 else => @compileError("Unsupported arg type: " ++ @typeName(arg_type)),
             },
-            .push = StackChange.from(return_type),
+            .push = switch (@typeInfo(return_type)) {
+                .Void => null,
+                .ErrorUnion => |eu_info| if (eu_info.payload == void) null else StackChange.from(eu_info.payload),
+                else => StackChange.from(return_type),
+            },
             .pop = switch (@typeInfo(pop_type)) {
-                .Void, .Int, .Float, .Union => .{ StackChange.from(pop_type), .Void, .Void },
+                .Void => StackChange.sliceOf(.{}),
+                .Int, .Float, .Union => StackChange.sliceOf(.{pop_type}),
                 .Struct => |s_info| blk: {
-                    std.debug.assert(s_info.fields.len == 3);
-                    std.debug.assert(std.mem.eql(u8, s_info.fields[0].name, "_0"));
-                    std.debug.assert(std.mem.eql(u8, s_info.fields[1].name, "_1"));
-                    std.debug.assert(std.mem.eql(u8, s_info.fields[2].name, "_2"));
-                    break :blk .{
-                        StackChange.from(s_info.fields[0].field_type),
-                        StackChange.from(s_info.fields[1].field_type),
-                        StackChange.from(s_info.fields[2].field_type),
-                    };
+                    var pop_changes: [s_info.fields.len]StackChange = undefined;
+                    for (s_info.fields) |field, f| {
+                        pop_changes[f] = StackChange.from(field.field_type);
+                    }
+                    break :blk &pop_changes;
                 },
                 else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
             },
@@ -106,7 +107,6 @@ pub fn byName(needle: []const u8) ?Op {
 }
 
 pub const StackChange = enum {
-    Void,
     I32,
     I64,
     F32,
@@ -115,17 +115,21 @@ pub const StackChange = enum {
 
     fn from(comptime T: type) StackChange {
         return switch (T) {
-            void => .Void,
             i32, u32 => .I32,
             i64, u64 => .I64,
             f32 => .F32,
             f64 => .F64,
             Execution.Value => .Poly,
-            else => switch (@typeInfo(T)) {
-                .ErrorUnion => |eu_info| from(eu_info.payload),
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
-            },
+            else => @compileError("Unsupported type: " ++ @typeName(T)),
         };
+    }
+
+    fn sliceOf(Types: var) []StackChange {
+        var array: [Types.len]StackChange = undefined;
+        for (Types) |T, i| {
+            array[i] = from(T);
+        }
+        return &array;
     }
 };
 
@@ -203,21 +207,21 @@ fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {
 test "ops" {
     const nop = byName("nop").?;
     std.testing.expectEqual(nop.arg_kind, .Void);
-    std.testing.expectEqual(nop.push, .Void);
-    std.testing.expectEqual(nop.pop[0], .Void);
-    std.testing.expectEqual(nop.pop[1], .Void);
-    std.testing.expectEqual(nop.pop[2], .Void);
+    std.testing.expectEqual(nop.push, null);
+    std.testing.expectEqual(nop.pop.len, 0);
 
     const i32_load = byName("i32.load").?;
     std.testing.expectEqual(i32_load.arg_kind, .Mem);
     std.testing.expectEqual(i32_load.push, .I32);
+
+    std.testing.expectEqual(i32_load.pop.len, 1);
     std.testing.expectEqual(i32_load.pop[0], .I32);
-    std.testing.expectEqual(i32_load.pop[1], .Void);
-    std.testing.expectEqual(i32_load.pop[2], .Void);
 
     const select = byName("select").?;
     std.testing.expectEqual(select.arg_kind, .Void);
     std.testing.expectEqual(select.push, .Poly);
+
+    std.testing.expectEqual(select.pop.len, 3);
     std.testing.expectEqual(select.pop[0], .Poly);
     std.testing.expectEqual(select.pop[1], .Poly);
     std.testing.expectEqual(select.pop[2], .I32);
@@ -229,7 +233,6 @@ const Impl = struct {
         return struct {
             _0: T0,
             _1: T1,
-            _2: void,
         };
     }
 
