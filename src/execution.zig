@@ -43,14 +43,6 @@ pub fn memGet(self: Execution, start: usize, offset: usize, comptime length: usi
     return @ptrCast(*[length]u8, &self.instance.memory[start + offset]);
 }
 
-pub const WasmTrap = error{
-    Unreachable,
-    Overflow,
-    OutOfBounds,
-    DivisionByZero,
-    InvalidConversionToInteger,
-};
-
 const Frame = packed struct {
     func: u20, // "max size" of 1000000
     instr: u22, // "max size" of 7654321 assuming average instruction size of 2 bytes
@@ -65,7 +57,7 @@ const Frame = packed struct {
     }
 };
 
-fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) Module.Value {
+fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) !Module.Value {
     var ctx = Execution{
         .instance = instance,
         .stack = @bytesToSlice([]u64, stack),
@@ -98,7 +90,7 @@ fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module
             const pop: [*]Value = &self.stack[self.stack_top];
             self.stack_top += op.pop.len;
 
-            const result = op.invoke(&self, instr.arg, pop);
+            const result = try op.step(&self, instr.arg, pop);
             self.push(result);
             self.current_frame.instr += 1;
         }
