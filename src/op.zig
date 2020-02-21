@@ -279,11 +279,13 @@ const Impl = struct {
     pub fn @"0x0E br_table"(self: *Execution, arg: Arg.Mem, pop: void) void {
         @panic("TODO");
     }
-
-    pub fn @"0x0F return"(self: *Execution, arg: void, pop: void) void {
-        @panic("TODO");
+    pub fn @"0x0F return"(self: *Execution, arg: void, pop: void) Execution.Value {
+        return self.unwindCall();
     }
 
+    pub fn @"0x10 call"(self: *Execution, arg: u32, pop: void) !void {
+        try self.initCall(arg);
+    }
     pub fn @"0x1A drop"(self: *Execution, arg: void, pop: Execution.Value) void {
         // Do nothing with the popped value
     }

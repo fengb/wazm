@@ -51,39 +51,17 @@ pub const WasmTrap = error{
     InvalidConversionToInteger,
 };
 
-const Frame = struct {
-    func: usize,
-    instr: usize,
-    top: usize,
-
-    const Serialized = packed struct {
-        func: u20, // "max size" of 1000000
-        instr: u22, // "max size" of 7654321 assuming average instruction size of 2 bytes
-        top: u22, // 4 million addressable space == 16MB
-    };
-
-    fn restore(raw: Serialized) Frame {
-        return .{
-            .func = @intToEnum(Index.Func, raw.func),
-            .instr = @intToEnum(Index.Instr, raw.instr),
-            .top = raw.top,
-        };
-    }
-
-    fn dump(self: Frame) Serialized {
-        return .{
-            .func = @enumToInt(self.func),
-            .instr = @enumToInt(self.instr),
-            .top = self.top,
-        };
-    }
+const Frame = packed struct {
+    func: u20, // "max size" of 1000000
+    instr: u22, // "max size" of 7654321 assuming average instruction size of 2 bytes
+    top: u22, // 4 million addressable space == 16MB
 
     fn terminus() Frame {
-        return .{ .func = 0, .instr = 0, .top = 0 };
+        return @bitCast(u64, @as(u64, 0));
     }
 
     fn isTerminus(self: Frame) bool {
-        return self.func == 0 and self.instr == 0 and self.top == 0;
+        return @bitCast(u64, self) == 0;
     }
 };
 
@@ -95,71 +73,75 @@ fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module
         .current_frame = Frame.terminus(),
     };
 
-    // Internal calls assume the arguments already exist
+    // initCall assumes the params are already pushed onto the stack
     for (params) |param| {
         ctx.push(param);
     }
 
-    const result = ctx.call(id);
-    std.debug.assert(self.stack_top == self.stack.len);
+    initCall(func_id);
+
+    while (true) {
+        const func = self.getFunc(self.current_frame.func);
+        if (self.current_frame.instr > func.instrs.len) {
+            const result = self.unwindCall();
+
+            if (self.current_frame.isTerminus()) {
+                std.debug.assert(self.stack_top == self.stack.len);
+                return value;
+            } else {
+                self.push(result);
+            }
+        } else {
+            const instr = func.instrs[self.current_frame.instr];
+            const op = Op.all[instr.opcode];
+
+            const pop: [*]Value = &self.stack[self.stack_top];
+            self.stack_top += op.pop.len;
+
+            const result = op.invoke(&self, instr.arg, pop);
+            self.push(result);
+            self.current_frame.instr += 1;
+        }
+    }
+}
+
+pub fn initCall(self: *Execution, func_id: usize) !void {
+    const func = self.instance.module.funcs[func_id];
+    // TODO: validate params on the callstack
+    for (func.locals) |local| {
+        try self.push(i64, 0);
+    }
+
+    try self.push(Frame, self.current_frame);
+    self.current_frame = .{
+        .func = @intCast(u20, func_id),
+        .instr = 0,
+        .top = @intCast(u22, self.stack_top),
+    };
+}
+
+pub fn unwindCall(self: *Execution) Value {
+    const func = self.instance.module.funcs[self.current_frame.func];
+    const result = self.pop(Value);
+    self.stack_top = self.current_frame.top;
+
+    const prev_frame = self.pop(Frame);
+    self.dropN(func.locals.len + func.params.len);
+
     return result;
 }
 
-fn call(self: *Execution, func_id: Index.Function) Value {
-    const func = self.instance.funcs[func_id];
-    // TODO: validate params on the callstack
-    for (func.locals) |local| {
-        switch (local) {
-            .I32 => self.push(i32, undefined),
-            .I64 => self.push(i64, undefined),
-            .F32 => self.push(f32, undefined),
-            .F64 => self.push(f64, undefined),
-        }
-    }
-
-    self.push(Frame, self.current_frame);
-    self.current_frame = .{
-        .func = func_id,
-        .instr = 0,
-        .top = self.stack_top,
-    };
-
-    // TODO: this loop should be in `run()`
-    // We should be able to flatten this call stack and have no dynamic stack requirements
-    for (func.instrs) |instr, i| {
-        self.current_frame.instr = i;
-        // Run
-    }
-
-    const result = self.pop(func.return_type);
-    self.unwindCall(func.return_value, result);
-}
-
-fn unwindCall(self: *Execution, func: Func, result: var) void {
-    self.stack_top = self.current_frame.top;
-
-    const prev_frame = Frame.restore(self.pop(Frame.Serialized));
-    self.dropBytes(func.local_size + func.param_size);
-
-    if (prev_frame.isTerminus()) {
-        std.debug.assert(self.stack_top == self.stack.len);
-        // THE END!
-    }
-}
-
-fn dropBytes(self: *Execution, size: usize) void {
-    std.debug.assert(self.stack_top + size <= stack.len);
+fn dropN(self: *Execution, size: usize) void {
+    std.debug.assert(self.stack_top + size <= self.stack.len);
     self.stack_top += size;
 }
 
 fn pop(self: *Execution, comptime T: type) T {
-    self.curr_size -= @sizeOf(T);
-    defer self.top += @sizeOf(T);
-    return std.mem.bytesToValue(T, &self.memory[self.top]);
+    defer self.stack_top += @sizeOf(T);
+    return @bitCast(T, self.stack[self.stack_top]);
 }
 
 fn push(self: *Execution, comptime T: type, value: T) !void {
-    self.top = try std.math.sub(self.top, @sizeOf(T));
-    self.curr_size += @sizeOf(T);
-    std.mem.copy(u8, self.memory[self.top..0], std.mem.toBytes(value));
+    self.stack_top = try std.math.sub(usize, self.stack_top, 1);
+    self.stack[self.stack_top] = @bitCast(u64, value);
 }
