@@ -73,7 +73,7 @@ code: []struct {
     locals: []struct {
         @"type": []Type.Value,
     },
-    code: []const u8,
+    code: []Module.Instr,
 },
 
 /// Code=11
@@ -416,9 +416,36 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                         }
                     }
                     // FIXME: this is probably the wrong size
-                    const code_data = try result.arena.allocator.alloc(u8, body_size);
-                    try payload.stream.readNoEof(code_data);
-                    c.code = code_data;
+                    if (body_size != payload.remaining) {
+                        return error.ComeUpWithABetterName;
+                    }
+                    var code = std.ArrayList(Module.Instr).init(&result.arena.allocator);
+                    while (payload.stream.readByte()) |opcode| {
+                        const op = Op.all[opcode] orelse return error.InvalidOpCode;
+                        try code.append(.{
+                            .opcode = op.code,
+                            .arg = switch (op.arg_kind) {
+                                .Void => .{ .I64 = 0 },
+                                .I32 => .{ .I64 = try readVarint(i32, &payload.stream) },
+                                .I64 => .{ .I64 = try readVarint(i64, &payload.stream) },
+                                .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
+                                .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
+                                .Type => .{ .I64 = try readVarint(u7, &payload.stream) },
+                                .I32z => Op.Arg.init(Op.Arg.I32z{
+                                    .data = try readVarint(i32, &payload.stream),
+                                    .reserved = try payload.stream.readByte(),
+                                }),
+                                .Mem => Op.Arg.init(Op.Arg.Mem{
+                                    .offset = try readVarint(u32, &payload.stream),
+                                    .align_ = try readVarint(u32, &payload.stream),
+                                }),
+                            },
+                        });
+                    } else |err| switch (err) {
+                        error.EndOfStream => {},
+                        else => return err,
+                    }
+                    c.code = code.toOwnedSlice();
                 }
             },
             0x11 => {

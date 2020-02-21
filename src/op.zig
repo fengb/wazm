@@ -7,7 +7,7 @@ const Op = @This();
 code: u8,
 name: []const u8,
 can_error: bool,
-arg_kind: @TagType(Arg),
+arg_kind: Arg.Kind,
 push: ?StackChange,
 pop: []StackChange,
 
@@ -129,17 +129,29 @@ pub const StackChange = enum {
     }
 };
 
-pub const Arg = union(enum) {
-    Void: void,
-    I32: i32,
+pub const Arg = packed union {
     I64: i64,
-    F32: f32,
     F64: f64,
-    Type: Type,
-    I32z: I32z,
-    Mem: Mem,
 
-    pub const Type = enum(u8) {
+    pub fn init(value: var) Arg {
+        const T = @TypeOf(value);
+        if (@bitSizeOf(T) != 64) @compileError("Cannot convert to arg -- not 64 bits: " ++ @typeName(T));
+
+        return @bitCast(Arg, value);
+    }
+
+    pub const Kind = enum {
+        Void,
+        I32,
+        I64,
+        F32,
+        F64,
+        Type,
+        I32z,
+        Mem,
+    };
+
+    pub const Type = enum(u64) {
         Void = 0x40,
         I32 = 0x7F,
         I64 = 0x7E,
@@ -150,6 +162,9 @@ pub const Arg = union(enum) {
     pub const I32z = packed struct {
         data: i32,
         reserved: u8,
+        // Zig bug -- won't pack correctly without manually splitting this
+        _pad0: u8 = 0,
+        _pad1: u16 = 0,
     };
 
     pub const Mem = packed struct {
