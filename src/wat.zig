@@ -340,6 +340,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
     try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
 
     var memory: usize = 0;
+    var func_types = std.ArrayList(Module.FuncType).init(&arena.allocator);
     var funcs = std.ArrayList(Module.Func).init(&arena.allocator);
     var exports = std.StringHashMap(Module.Export).init(&arena.allocator);
 
@@ -427,17 +428,21 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                                 try ctx.validate(next.data == .float, next.token.source);
                                 break :blk .{ .F64 = @floatCast(f64, next.data.float) };
                             },
-                            .I32z, .Mem => {
+                            .U32z, .Mem => {
                                 @panic(list[i].data.keyword);
                             },
                         },
                     });
                 }
 
-                try funcs.append(.{
-                    .name = null,
+                try func_types.append(.{
                     .params = params.toOwnedSlice(),
                     .result = result,
+                });
+
+                try funcs.append(.{
+                    .name = null,
+                    .func_type = func_types.len - 1,
                     .locals = locals.toOwnedSlice(),
                     .instrs = instrs.toOwnedSlice(),
                 });
@@ -448,6 +453,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
 
     return Module{
         .memory = @intCast(u32, memory),
+        .func_types = func_types.toOwnedSlice(),
         .funcs = funcs.toOwnedSlice(),
         .exports = exports,
         .arena = arena,
@@ -481,17 +487,17 @@ test "parse" {
 
         std.testing.expectEqual(@as(usize, 1), module.funcs.len);
 
+        const func_type = module.func_types[0];
+        std.testing.expectEqual(@as(usize, 2), func_type.params.len);
+        std.testing.expectEqual(Module.Type.I32, func_type.params[0]);
+        std.testing.expectEqual(Module.Type.F32, func_type.params[1]);
+        std.testing.expectEqual(Module.Type.I64, func_type.result.?);
+
         const func = module.funcs[0];
         std.testing.expectEqual(@as(?[]const u8, null), func.name);
 
-        std.testing.expectEqual(@as(usize, 2), func.params.len);
-        std.testing.expectEqual(Module.Type.I32, func.params[0]);
-        std.testing.expectEqual(Module.Type.F32, func.params[1]);
-
         std.testing.expectEqual(@as(usize, 1), func.locals.len);
         std.testing.expectEqual(Module.Type.F64, func.locals[0]);
-
-        std.testing.expectEqual(Module.Type.I64, func.result.?);
 
         std.testing.expectEqual(@as(usize, 3), func.instrs.len);
     }

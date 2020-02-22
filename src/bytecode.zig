@@ -431,8 +431,8 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                                 .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
                                 .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
                                 .Type => .{ .I64 = try readVarint(u7, &payload.stream) },
-                                .I32z => Op.Fixed64.init(Op.Arg.I32z{
-                                    .data = try readVarint(i32, &payload.stream),
+                                .U32z => Op.Fixed64.init(Op.Arg.U32z{
+                                    .data = try readVarint(u32, &payload.stream),
                                     .reserved = try payload.stream.readByte(),
                                 }),
                                 .Mem => Op.Fixed64.init(Op.Arg.Mem{
@@ -481,6 +481,7 @@ pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) Module {
 
     return Module{
         .memory = 0,
+        .func_types = &[0]Module.FuncType{},
         .funcs = &[0]Module.Func{},
         .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
         .arena = arena,

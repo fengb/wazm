@@ -6,6 +6,7 @@ const Module = @This();
 
 arena: std.heap.ArenaAllocator,
 memory: u32 = 0,
+func_types: []FuncType,
 funcs: []Func,
 exports: std.StringHashMap(Export),
 
@@ -27,10 +28,14 @@ pub const Export = union(enum) {
     Func: usize,
 };
 
-pub const Func = struct {
-    name: ?[]const u8,
+pub const FuncType = struct {
     params: []Type,
     result: ?Type,
+};
+
+pub const Func = struct {
+    name: ?[]const u8,
+    func_type: usize,
     locals: []Type,
     instrs: []Instr,
 };

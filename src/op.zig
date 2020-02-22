@@ -119,7 +119,7 @@ pub const Arg = struct {
         F32,
         F64,
         Type,
-        I32z,
+        U32z,
         Mem,
 
         fn init(comptime T: type) Kind {
@@ -130,7 +130,7 @@ pub const Arg = struct {
                 f64 => .F64,
                 Arg.Void => .Void,
                 Arg.Type => .Type,
-                Arg.I32z => .I32z,
+                Arg.U32z => .U32z,
                 Arg.Mem => .Mem,
                 else => @compileError("Unsupported arg type: " ++ @typeName(arg_type)),
             };
@@ -149,8 +149,8 @@ pub const Arg = struct {
         F64 = 0x7C,
     };
 
-    pub const I32z = packed struct {
-        data: i32,
+    pub const U32z = packed struct {
+        data: u32,
         reserved: u8,
         // Zig bug -- won't pack correctly without manually splitting this
         _pad0: u8 = 0,
@@ -252,6 +252,8 @@ pub const WasmTrap = error{
     OutOfBounds,
     DivisionByZero,
     InvalidConversionToInteger,
+    IndirectCalleeAbsent,
+    IndirectCallTypeMismatch,
 };
 
 pub fn step(self: Op, ctx: *Execution, arg: Any, pop: **Any) WasmTrap!Any {
@@ -342,6 +344,18 @@ const Impl = struct {
 
     pub fn @"0x10 call"(ctx: *Execution, arg: u32, pop: *None) !void {
         try ctx.initCall(arg);
+    }
+    pub fn @"0x11 call_indirect"(ctx: *Execution, arg: Arg.U32z, pop: *u32) !void {
+        const func_type = &ctx.instance.module.func_types[arg.data];
+        const func_id = pop.*;
+        if (func_id >= ctx.instance.module.funcs.len) {
+            return error.IndirectCalleeAbsent;
+        }
+        const func = ctx.instance.module.funcs[func_id];
+        if (func.func_type != arg.data) {
+            return error.IndirectCallTypeMismatch;
+        }
+        try ctx.initCall(func_id);
     }
     pub fn @"0x1A drop"(ctx: *Execution, arg: Arg.Void, pop: *Fixed64) void {
         // Do nothing with the popped value

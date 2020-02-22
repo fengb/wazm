@@ -107,11 +107,12 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
 
 pub fn unwindCall(self: *Execution) Op.Fixed64 {
     const func = self.instance.module.funcs[self.current_frame.func];
+    const func_type = self.instance.module.func_types[func.func_type];
     const result = self.pop(Op.Fixed64);
     self.stack_top = self.current_frame.top;
 
     const prev_frame = self.pop(Frame);
-    self.dropN(func.locals.len + func.params.len);
+    self.dropN(func.locals.len + func_type.params.len);
 
     return result;
 }
