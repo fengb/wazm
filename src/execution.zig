@@ -10,7 +10,7 @@ stack_top: usize,
 
 current_frame: Frame,
 
-pub fn getLocal(self: Execution, idx: usize) Value {
+pub fn getLocal(self: Execution, idx: usize) Op.Fixed64 {
     @panic("TODO");
 }
 
@@ -18,20 +18,13 @@ pub fn setLocal(self: Execution, idx: usize, value: var) void {
     @panic("TODO");
 }
 
-pub fn getGlobal(self: Execution, idx: usize) Value {
+pub fn getGlobal(self: Execution, idx: usize) Op.Fixed64 {
     @panic("TODO");
 }
 
 pub fn setGlobal(self: Execution, idx: usize, value: var) void {
     @panic("TODO");
 }
-
-pub const Value = packed union {
-    I32: i32,
-    I64: i64,
-    F32: f32,
-    F64: f64,
-};
 
 pub fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
     const tail = start +% offset +% (length - 1);
@@ -57,7 +50,7 @@ const Frame = packed struct {
     }
 };
 
-fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) !Module.Value {
+fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) !Module.Op.Fixed64 {
     var ctx = Execution{
         .instance = instance,
         .stack = @bytesToSlice([]u64, stack),
@@ -87,7 +80,7 @@ fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module
             const instr = func.instrs[self.current_frame.instr];
             const op = Op.all[instr.opcode];
 
-            const pop: [*]Value = &self.stack[self.stack_top];
+            const pop: [*]Op.Fixed64 = &self.stack[self.stack_top];
             self.stack_top += op.pop.len;
 
             const result = try op.step(&self, instr.arg, pop);
@@ -112,9 +105,9 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
     };
 }
 
-pub fn unwindCall(self: *Execution) Value {
+pub fn unwindCall(self: *Execution) Op.Fixed64 {
     const func = self.instance.module.funcs[self.current_frame.func];
-    const result = self.pop(Value);
+    const result = self.pop(Op.Fixed64);
     self.stack_top = self.current_frame.top;
 
     const prev_frame = self.pop(Frame);

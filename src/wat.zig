@@ -396,15 +396,15 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                             .Type => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .keyword, next.token.source);
-                                break :blk Op.Arg.init(
-                                    switch (swhash(next.data.keyword)) {
-                                        swhash("void") => Op.Arg.Type.Void,
+                                break :blk Op.Fixed64.init(
+                                    @as(Op.Arg.Type, switch (swhash(next.data.keyword)) {
+                                        swhash("void") => .Void,
                                         swhash("i32") => .I32,
                                         swhash("i64") => .I64,
                                         swhash("f32") => .F32,
                                         swhash("f64") => .F64,
                                         else => return ctx.fail(next.token.source),
-                                    },
+                                    }),
                                 );
                             },
                             .I32 => blk: {

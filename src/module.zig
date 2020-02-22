@@ -37,7 +37,7 @@ pub const Func = struct {
 
 pub const Instr = struct {
     opcode: u8,
-    arg: Op.Arg,
+    arg: Op.Fixed64,
 };
 
 pub const Value = union {

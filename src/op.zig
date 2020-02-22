@@ -8,8 +8,8 @@ code: u8,
 name: []const u8,
 can_error: bool,
 arg_kind: Arg.Kind,
-push: ?StackChange,
-pop: []StackChange,
+push: ?Stack.Change,
+pop: []Stack.Change,
 
 pub const sparse = blk: {
     @setEvalBranchQuota(100000);
@@ -39,28 +39,18 @@ pub const sparse = blk: {
                 },
                 else => false,
             },
-            .arg_kind = switch (arg_type) {
-                i32, u32 => .I32,
-                i64, u64 => .I64,
-                f32 => .F32,
-                f64 => .F64,
-                Arg.Void => .Void,
-                Arg.Type => .Type,
-                Arg.I32z => .I32z,
-                Arg.Mem => .Mem,
-                else => @compileError("Unsupported arg type: " ++ @typeName(arg_type)),
-            },
+            .arg_kind = Arg.Kind.init(arg_type),
             .push = switch (@typeInfo(return_type)) {
                 .Void => null,
-                .ErrorUnion => |eu_info| if (eu_info.payload == void) null else StackChange.from(eu_info.payload),
-                else => StackChange.from(return_type),
+                .ErrorUnion => |eu_info| if (eu_info.payload == void) null else Stack.Change.init(eu_info.payload),
+                else => Stack.Change.init(return_type),
             },
             .pop = switch (@typeInfo(pop_ref_type)) {
-                .Int, .Float, .Union => StackChange.sliceOf(.{pop_ref_type}),
+                .Int, .Float, .Union => Stack.Change.initSlice(.{pop_ref_type}),
                 .Struct => |s_info| blk: {
-                    var pop_changes: [s_info.fields.len]StackChange = undefined;
+                    var pop_changes: [s_info.fields.len]Stack.Change = undefined;
                     for (s_info.fields) |field, f| {
-                        pop_changes[f] = StackChange.from(field.field_type);
+                        pop_changes[f] = Stack.Change.init(field.field_type);
                     }
                     break :blk &pop_changes;
                 },
@@ -104,44 +94,24 @@ pub fn byName(needle: []const u8) ?Op {
     return null;
 }
 
-pub const StackChange = enum {
-    I32,
-    I64,
-    F32,
-    F64,
-    Poly,
-
-    fn from(comptime T: type) StackChange {
-        return switch (T) {
-            i32, u32 => .I32,
-            i64, u64 => .I64,
-            f32 => .F32,
-            f64 => .F64,
-            Execution.Value => .Poly,
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
-        };
-    }
-
-    fn sliceOf(Types: var) []StackChange {
-        var array: [Types.len]StackChange = undefined;
-        for (Types) |T, i| {
-            array[i] = from(T);
-        }
-        return &array;
-    }
-};
-
-pub const Arg = packed union {
+/// Generic memory chunk capable of representing any wasm type.
+/// Useful for storing instruction args, stack variables, and globals.
+/// This will probably change once SIMD is exposed.
+pub const Fixed64 = packed union {
+    I32: i32,
     I64: i64,
+    F32: f32,
     F64: f64,
 
-    pub fn init(value: var) Arg {
+    pub fn init(value: var) Fixed64 {
         const T = @TypeOf(value);
         if (@bitSizeOf(T) != 64) @compileError("Cannot convert to arg -- not 64 bits: " ++ @typeName(T));
 
-        return @bitCast(Arg, value);
+        return @bitCast(Fixed64, value);
     }
+};
 
+pub const Arg = struct {
     pub const Kind = enum {
         Void,
         I32,
@@ -151,6 +121,20 @@ pub const Arg = packed union {
         Type,
         I32z,
         Mem,
+
+        fn init(comptime T: type) Kind {
+            return switch (T) {
+                i32, u32 => .I32,
+                i64, u64 => .I64,
+                f32 => .F32,
+                f64 => .F64,
+                Arg.Void => .Void,
+                Arg.Type => .Type,
+                Arg.I32z => .I32z,
+                Arg.Mem => .Mem,
+                else => @compileError("Unsupported arg type: " ++ @typeName(arg_type)),
+            };
+        }
     };
 
     pub const Void = packed struct {
@@ -176,6 +160,35 @@ pub const Arg = packed union {
     pub const Mem = packed struct {
         offset: u32,
         align_: u32,
+    };
+};
+
+pub const Stack = struct {
+    pub const Change = enum {
+        I32,
+        I64,
+        F32,
+        F64,
+        Poly,
+
+        fn init(comptime T: type) Stack.Change {
+            return switch (T) {
+                i32, u32 => .I32,
+                i64, u64 => .I64,
+                f32 => .F32,
+                f64 => .F64,
+                Fixed64 => .Poly,
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            };
+        }
+
+        fn initSlice(Types: var) []Stack.Change {
+            var array: [Types.len]Stack.Change = undefined;
+            for (Types) |T, i| {
+                array[i] = init(T);
+            }
+            return &array;
+        }
     };
 };
 
@@ -323,34 +336,34 @@ const Impl = struct {
     pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Mem, pop: *None) void {
         @panic("TODO");
     }
-    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *None) Execution.Value {
+    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *None) Fixed64 {
         return ctx.unwindCall();
     }
 
     pub fn @"0x10 call"(ctx: *Execution, arg: u32, pop: *None) !void {
         try ctx.initCall(arg);
     }
-    pub fn @"0x1A drop"(ctx: *Execution, arg: Arg.Void, pop: *Execution.Value) void {
+    pub fn @"0x1A drop"(ctx: *Execution, arg: Arg.Void, pop: *Fixed64) void {
         // Do nothing with the popped value
     }
-    pub fn @"0x1B select"(ctx: *Execution, arg: Arg.Void, pop: *Triple(Execution.Value, Execution.Value, i32)) Execution.Value {
+    pub fn @"0x1B select"(ctx: *Execution, arg: Arg.Void, pop: *Triple(Fixed64, Fixed64, i32)) Fixed64 {
         return if (pop._2 == 0) pop._0 else pop._1;
     }
 
-    pub fn @"0x20 local.get"(ctx: *Execution, arg: u32, pop: *None) Execution.Value {
+    pub fn @"0x20 local.get"(ctx: *Execution, arg: u32, pop: *None) Fixed64 {
         return ctx.getLocal(arg);
     }
-    pub fn @"0x21 local.set"(ctx: *Execution, arg: u32, pop: *Execution.Value) void {
+    pub fn @"0x21 local.set"(ctx: *Execution, arg: u32, pop: *Fixed64) void {
         ctx.setLocal(arg, pop);
     }
-    pub fn @"0x22 local.tee"(ctx: *Execution, arg: u32, pop: *Execution.Value) Execution.Value {
+    pub fn @"0x22 local.tee"(ctx: *Execution, arg: u32, pop: *Fixed64) Fixed64 {
         ctx.setLocal(arg, pop.*);
         return pop.*;
     }
-    pub fn @"0x23 global.get"(ctx: *Execution, arg: u32, pop: *None) Execution.Value {
+    pub fn @"0x23 global.get"(ctx: *Execution, arg: u32, pop: *None) Fixed64 {
         return ctx.getGlobal(arg);
     }
-    pub fn @"0x24 global.set"(ctx: *Execution, arg: u32, pop: *Execution.Value) void {
+    pub fn @"0x24 global.set"(ctx: *Execution, arg: u32, pop: *Fixed64) void {
         ctx.setGlobal(arg, pop.*);
     }
     pub fn @"0x28 i32.load"(ctx: *Execution, mem: Arg.Mem, pop: *u32) !i32 {
