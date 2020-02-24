@@ -231,8 +231,13 @@ fn errContains(comptime err_set: type, val: comptime_int) bool {
     return lookup[val];
 }
 
+fn bitKludge(comptime T: type, bytes: []const u8) T {
+    var result = [_]u8{0} ** @sizeOf(T);
+    std.mem.copy(u8, &result, bytes);
+    return std.mem.readIntBig(T, &result);
+}
 fn lessThan(lhs: Op, rhs: Op) bool {
-    return std.mem.lessThan(u8, lhs.name, rhs.name);
+    return bitKludge(u256, lhs.name) < bitKludge(u256, rhs.name);
 }
 
 fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {
