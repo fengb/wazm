@@ -426,8 +426,10 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                             .opcode = op.code,
                             .arg = switch (op.arg_kind) {
                                 .Void => .{ .I64 = 0 },
-                                .I32 => .{ .I64 = try readVarint(i32, &payload.stream) },
+                                .I32 => .{ .I32 = try readVarint(i32, &payload.stream) },
+                                .U32 => .{ .U32 = try readVarint(u32, &payload.stream) },
                                 .I64 => .{ .I64 = try readVarint(i64, &payload.stream) },
+                                .U64 => .{ .U64 = try readVarint(u64, &payload.stream) },
                                 .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
                                 .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
                                 .Type => .{ .I64 = try readVarint(u7, &payload.stream) },

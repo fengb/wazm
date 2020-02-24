@@ -411,12 +411,22 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                             .I32 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk .{ .I64 = @intCast(i32, next.data.integer) };
+                                break :blk .{ .I32 = @intCast(i32, next.data.integer) };
+                            },
+                            .U32 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .integer, next.token.source);
+                                break :blk .{ .U32 = @intCast(u32, next.data.integer) };
                             },
                             .I64 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .integer, next.token.source);
                                 break :blk .{ .I64 = @intCast(i64, next.data.integer) };
+                            },
+                            .U64 => blk: {
+                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                try ctx.validate(next.data == .integer, next.token.source);
+                                break :blk .{ .U64 = @intCast(u64, next.data.integer) };
                             },
                             .F32 => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());

@@ -99,7 +99,9 @@ pub fn byName(needle: []const u8) ?Op {
 /// This will probably change once SIMD is exposed.
 pub const Fixed64 = packed union {
     I32: i32,
+    U32: u32,
     I64: i64,
+    U64: u64,
     F32: f32,
     F64: f64,
 
@@ -115,7 +117,9 @@ pub const Arg = struct {
     pub const Kind = enum {
         Void,
         I32,
+        U32,
         I64,
+        U64,
         F32,
         F64,
         Type,
@@ -124,8 +128,10 @@ pub const Arg = struct {
 
         fn init(comptime T: type) Kind {
             return switch (T) {
-                i32, u32 => .I32,
-                i64, u64 => .I64,
+                i32 => .I32,
+                u32 => .U32,
+                i64 => .I64,
+                u64 => .U64,
                 f32 => .F32,
                 f64 => .F64,
                 Arg.Void => .Void,
