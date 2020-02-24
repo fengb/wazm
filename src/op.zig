@@ -282,16 +282,18 @@ pub const WasmTrap = error{
     IndirectCallTypeMismatch,
 };
 
-pub fn step(self: Op, ctx: *Execution, arg: Any, pop: **Any) WasmTrap!Any {
+pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]Fixed64) WasmTrap!?Fixed64 {
     // TODO: test out function pointers for performance comparison
     inline for (publicFunctions(Impl)) |decl| {
         const opcode = comptime parseOpcode(func.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]);
         if (self.code == opcode) {
-            return @field(Impl, func.name)(
+            const result = @field(Impl, func.name)(
                 ctx,
                 @bitCast(func.args[1].arg_type.?, arg),
                 @bitCast(func.args[2].arg_type.?, pop),
             );
+
+            return if (@TypeOf(result) == void) null else result;
         }
     }
 

@@ -84,7 +84,9 @@ fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module
             self.stack_top += op.pop.len;
 
             const result = try op.step(&self, instr.arg, pop);
-            self.push(result);
+            if (result) |res| {
+                self.push(result);
+            }
             self.current_frame.instr += 1;
         }
     }
