@@ -111,6 +111,25 @@ pub const Fixed64 = packed union {
 
         return @bitCast(Fixed64, value);
     }
+
+    pub const Void = packed struct {
+        _pad: u64,
+    };
+
+    const I32 = packed union {
+        data: i32,
+        _pad: u64,
+    };
+
+    const U32 = packed union {
+        data: u32,
+        _pad: u64,
+    };
+
+    const F32 = packed union {
+        data: f32,
+        _pad: u64,
+    };
 };
 
 pub const Arg = struct {
@@ -128,24 +147,25 @@ pub const Arg = struct {
 
         fn init(comptime T: type) Kind {
             return switch (T) {
-                i32 => .I32,
-                u32 => .U32,
+                I32 => .I32,
+                U32 => .U32,
                 i64 => .I64,
                 u64 => .U64,
-                f32 => .F32,
+                F32 => .F32,
                 f64 => .F64,
-                Arg.Void => .Void,
-                Arg.Type => .Type,
-                Arg.U32z => .U32z,
-                Arg.Mem => .Mem,
-                else => @compileError("Unsupported arg type: " ++ @typeName(arg_type)),
+                Void => .Void,
+                Type => .Type,
+                U32z => .U32z,
+                Mem => .Mem,
+                else => @compileError("Unsupported arg type: " ++ @typeName(T)),
             };
         }
     };
 
-    pub const Void = packed struct {
-        _pad: u64,
-    };
+    pub const I32 = Fixed64.I32;
+    pub const U32 = Fixed64.U32;
+    pub const F32 = Fixed64.F32;
+    pub const Void = Fixed64.Void;
 
     pub const Type = enum(u64) {
         Void = 0x40,
@@ -337,7 +357,7 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x0D br_if"(ctx: *Execution, arg: i32, pop: *None) void {
+    pub fn @"0x0D br_if"(ctx: *Execution, arg: Arg.I32, pop: *None) void {
         @panic("TODO");
     }
 
@@ -348,8 +368,8 @@ const Impl = struct {
         return ctx.unwindCall();
     }
 
-    pub fn @"0x10 call"(ctx: *Execution, arg: u32, pop: *None) !void {
-        try ctx.initCall(arg);
+    pub fn @"0x10 call"(ctx: *Execution, arg: Arg.U32, pop: *None) !void {
+        try ctx.initCall(arg.data);
     }
     pub fn @"0x11 call_indirect"(ctx: *Execution, arg: Arg.U32z, pop: *u32) !void {
         const func_type = &ctx.instance.module.func_types[arg.data];
@@ -370,21 +390,21 @@ const Impl = struct {
         return if (pop._2 == 0) pop._0 else pop._1;
     }
 
-    pub fn @"0x20 local.get"(ctx: *Execution, arg: u32, pop: *None) Fixed64 {
-        return ctx.getLocal(arg);
+    pub fn @"0x20 local.get"(ctx: *Execution, arg: Arg.U32, pop: *None) Fixed64 {
+        return ctx.getLocal(arg.data);
     }
-    pub fn @"0x21 local.set"(ctx: *Execution, arg: u32, pop: *Fixed64) void {
-        ctx.setLocal(arg, pop);
+    pub fn @"0x21 local.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
+        ctx.setLocal(arg.data, pop);
     }
-    pub fn @"0x22 local.tee"(ctx: *Execution, arg: u32, pop: *Fixed64) Fixed64 {
-        ctx.setLocal(arg, pop.*);
+    pub fn @"0x22 local.tee"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) Fixed64 {
+        ctx.setLocal(arg.data, pop.*);
         return pop.*;
     }
-    pub fn @"0x23 global.get"(ctx: *Execution, arg: u32, pop: *None) Fixed64 {
-        return ctx.getGlobal(arg);
+    pub fn @"0x23 global.get"(ctx: *Execution, arg: Arg.U32, pop: *None) Fixed64 {
+        return ctx.getGlobal(arg.data);
     }
-    pub fn @"0x24 global.set"(ctx: *Execution, arg: u32, pop: *Fixed64) void {
-        ctx.setGlobal(arg, pop.*);
+    pub fn @"0x24 global.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
+        ctx.setGlobal(arg.data, pop.*);
     }
     pub fn @"0x28 i32.load"(ctx: *Execution, mem: Arg.Mem, pop: *u32) !i32 {
         return std.mem.readIntLittle(i32, try ctx.memGet(pop.*, mem.offset, 4));
@@ -480,14 +500,14 @@ const Impl = struct {
         };
         return @intCast(i32, current);
     }
-    pub fn @"0x41 i32.const"(ctx: *Execution, arg: i32, pop: *None) i32 {
-        return arg;
+    pub fn @"0x41 i32.const"(ctx: *Execution, arg: Arg.I32, pop: *None) i32 {
+        return arg.data;
     }
     pub fn @"0x42 i64.const"(ctx: *Execution, arg: i64, pop: *None) i64 {
         return arg;
     }
-    pub fn @"0x43 f32.const"(ctx: *Execution, arg: f32, pop: *None) f32 {
-        return arg;
+    pub fn @"0x43 f32.const"(ctx: *Execution, arg: Arg.F32, pop: *None) f32 {
+        return arg.data;
     }
     pub fn @"0x44 f64.const"(ctx: *Execution, arg: f64, pop: *None) f64 {
         return arg;
