@@ -300,11 +300,13 @@ pub const WasmTrap = error{
 };
 
 pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]align(8) Fixed64) WasmTrap!?Fixed64 {
+    var prefix_search = [4]u8{ '0', 'x', self.code / 16 + '0', self.code % 16 + '0' };
+
     // TODO: test out function pointers for performance comparison
+    // LLVM optimizes this inline for / mem.eql as a jump table
+    // Please benchmark if we try to to optimize this.
     inline for (publicFunctions(Impl)) |decl| {
-        @setEvalBranchQuota(10000);
-        const opcode = comptime parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]);
-        if (self.code == opcode) {
+        if (std.mem.eql(u8, &prefix_search, decl.name[0..4])) {
             const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
             const result = @field(Impl, decl.name)(
                 ctx,
@@ -312,8 +314,7 @@ pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]align(8) Fixed64) W
                     .Enum => @intToEnum(args[1].arg_type.?, arg.U64),
                     else => @bitCast(args[1].arg_type.?, arg),
                 },
-                @intToPtr(args[2].arg_type.?, 8),
-                //@ptrCast(args[2].arg_type.?, pop),
+                @ptrCast(args[2].arg_type.?, pop),
                 //@bitCast(args[2].arg_type.?, pop),
             );
 
