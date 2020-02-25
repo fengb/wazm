@@ -397,7 +397,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                             .Type => blk: {
                                 const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                 try ctx.validate(next.data == .keyword, next.token.source);
-                                break :blk Op.Fixed64.init(
+                                break :blk Op.Fixval.init(
                                     @as(Op.Arg.Type, switch (swhash(next.data.keyword)) {
                                         swhash("void") => .Void,
                                         swhash("i32") => .I32,

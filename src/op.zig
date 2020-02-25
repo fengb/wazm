@@ -45,7 +45,7 @@ pub const sparse = blk: {
                 .ErrorUnion => |eu_info| if (eu_info.payload == void) null else Stack.Change.init(eu_info.payload),
                 else => Stack.Change.init(return_type),
             },
-            .pop = if (pop_ref_type == Fixed64.Void)
+            .pop = if (pop_ref_type == Fixval.Void)
                 &[0]Stack.Change{}
             else switch (@typeInfo(pop_ref_type)) {
                 .Int, .Float, .Union => Stack.Change.initSlice(.{pop_ref_type}),
@@ -98,39 +98,54 @@ pub fn byName(needle: []const u8) ?Op {
 
 /// Generic memory chunk capable of representing any wasm type.
 /// Useful for storing instruction args, stack variables, and globals.
-/// This will probably change once SIMD is exposed.
-pub const Fixed64 = packed union {
+pub const Fixval = packed union {
     I32: i32,
     U32: u32,
     I64: i64,
     U64: u64,
     F32: f32,
     F64: f64,
+    V128: i128, // TODO: make this a real vector
 
-    pub fn init(value: var) Fixed64 {
+    pub fn init(value: var) Fixval {
         const T = @TypeOf(value);
-        if (@bitSizeOf(T) != 64) @compileError("Cannot convert to arg -- not 64 bits: " ++ @typeName(T));
+        if (@bitSizeOf(T) != 128) @compileError("Cannot convert to arg -- not 128 bits: " ++ @typeName(T));
 
-        return @bitCast(Fixed64, value);
+        return @bitCast(Fixval, value);
     }
 
     pub const Void = packed struct {
-        _pad: u64,
+        _pad: u128,
     };
 
     const I32 = packed union {
         data: i32,
-        _pad: u64,
+        _pad: u128,
     };
 
     const U32 = packed union {
         data: u32,
-        _pad: u64,
+        _pad: u128,
+    };
+
+    const I64 = packed union {
+        data: i64,
+        _pad: u128,
+    };
+
+    const U64 = packed union {
+        data: u64,
+        _pad: u128,
     };
 
     const F32 = packed union {
         data: f32,
-        _pad: u64,
+        _pad: u128,
+    };
+
+    const F64 = packed union {
+        data: f64,
+        _pad: u128,
     };
 };
 
@@ -152,10 +167,10 @@ pub const Arg = struct {
             return switch (T) {
                 I32 => .I32,
                 U32 => .U32,
-                i64 => .I64,
-                u64 => .U64,
+                I64 => .I64,
+                U64 => .U64,
                 F32 => .F32,
-                f64 => .F64,
+                F64 => .F64,
                 Void => .Void,
                 Type => .Type,
                 U32z => .U32z,
@@ -166,12 +181,15 @@ pub const Arg = struct {
         }
     };
 
-    pub const I32 = Fixed64.I32;
-    pub const U32 = Fixed64.U32;
-    pub const F32 = Fixed64.F32;
-    pub const Void = Fixed64.Void;
+    pub const Void = Fixval.Void;
+    pub const I32 = Fixval.I32;
+    pub const I64 = Fixval.I64;
+    pub const U32 = Fixval.U32;
+    pub const U64 = Fixval.U64;
+    pub const F32 = Fixval.F32;
+    pub const F64 = Fixval.F64;
 
-    pub const Type = enum(u64) {
+    pub const Type = enum(u128) {
         Void = 0x40,
         I32 = 0x7F,
         I64 = 0x7E,
@@ -185,19 +203,19 @@ pub const Arg = struct {
         // Zig bug -- won't pack correctly without manually splitting this
         _pad0: u8 = 0,
         _pad1: u16 = 0,
+        _pad2: u64 = 0,
     };
 
     pub const Mem = packed struct {
         offset: u32,
         align_: u32,
+        _pad: u64 = 0,
     };
 
-    pub const Array = packed union {
-        pub const sentinel = std.math.maxInt(u32);
-
-        // TODO: increase Fixed64 to Fixed128 so we can use slice semantics
-        data: [*:sentinel]u32,
-        _pad: u64,
+    pub const Array = packed struct {
+        data: [*]u32,
+        len: usize,
+        _pad: std.meta.IntType(false, 128 - 2 * @bitSizeOf(usize)) = 0,
     };
 };
 
@@ -215,7 +233,7 @@ pub const Stack = struct {
                 i64, u64 => .I64,
                 f32 => .F32,
                 f64 => .F64,
-                Fixed64 => .Poly,
+                Fixval => .Poly,
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             };
         }
@@ -299,7 +317,7 @@ pub const WasmTrap = error{
     IndirectCallTypeMismatch,
 };
 
-pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]align(8) Fixed64) WasmTrap!?Fixed64 {
+pub fn step(self: Op, ctx: *Execution, arg: Fixval, pop: [*]align(8) Fixval) WasmTrap!?Fixval {
     var prefix_search = [4]u8{ '0', 'x', self.code / 16 + '0', self.code % 16 + '0' };
 
     // TODO: test out function pointers for performance comparison
@@ -322,13 +340,13 @@ pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]align(8) Fixed64) W
 
             return switch (@TypeOf(result_value)) {
                 void => null,
-                i32 => Fixed64{ .I32 = result_value },
-                u32 => Fixed64{ .U32 = result_value },
-                i64 => Fixed64{ .I64 = result_value },
-                u64 => Fixed64{ .U64 = result_value },
-                f32 => Fixed64{ .F32 = result_value },
-                f64 => Fixed64{ .F64 = result_value },
-                Fixed64 => result_value,
+                i32 => Fixval{ .I32 = result_value },
+                u32 => Fixval{ .U32 = result_value },
+                i64 => Fixval{ .I64 = result_value },
+                u64 => Fixval{ .U64 = result_value },
+                f32 => Fixval{ .F32 = result_value },
+                f64 => Fixval{ .F64 = result_value },
+                Fixval => result_value,
                 else => @compileError("Op return unimplemented: " ++ @typeName(@TypeOf(result_value))),
             };
         }
@@ -346,7 +364,7 @@ fn parseOpcode(name: []const u8) !u8 {
 }
 
 const Impl = struct {
-    const Void = Fixed64.Void;
+    const Void = Fixval.Void;
 
     // TODO: replace once Zig can define tuple types
     fn Pair(comptime T0: type, comptime T1: type) type {
@@ -430,27 +448,27 @@ const Impl = struct {
         }
         try ctx.initCall(func_id);
     }
-    pub fn @"0x1A drop"(ctx: *Execution, arg: Arg.Void, pop: *Fixed64) void {
+    pub fn @"0x1A drop"(ctx: *Execution, arg: Arg.Void, pop: *Fixval) void {
         // Do nothing with the popped value
     }
-    pub fn @"0x1B select"(ctx: *Execution, arg: Arg.Void, pop: *Triple(Fixed64, Fixed64, i32)) Fixed64 {
+    pub fn @"0x1B select"(ctx: *Execution, arg: Arg.Void, pop: *Triple(Fixval, Fixval, i32)) Fixval {
         return if (pop._2 == 0) pop._0 else pop._1;
     }
 
-    pub fn @"0x20 local.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixed64 {
+    pub fn @"0x20 local.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixval {
         return ctx.getLocal(arg.data);
     }
-    pub fn @"0x21 local.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
+    pub fn @"0x21 local.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixval) void {
         ctx.setLocal(arg.data, pop);
     }
-    pub fn @"0x22 local.tee"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) Fixed64 {
+    pub fn @"0x22 local.tee"(ctx: *Execution, arg: Arg.U32, pop: *Fixval) Fixval {
         ctx.setLocal(arg.data, pop.*);
         return pop.*;
     }
-    pub fn @"0x23 global.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixed64 {
+    pub fn @"0x23 global.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixval {
         return ctx.getGlobal(arg.data);
     }
-    pub fn @"0x24 global.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
+    pub fn @"0x24 global.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixval) void {
         ctx.setGlobal(arg.data, pop.*);
     }
     pub fn @"0x28 i32.load"(ctx: *Execution, mem: Arg.Mem, pop: *u32) !i32 {
@@ -550,14 +568,14 @@ const Impl = struct {
     pub fn @"0x41 i32.const"(ctx: *Execution, arg: Arg.I32, pop: *Void) i32 {
         return arg.data;
     }
-    pub fn @"0x42 i64.const"(ctx: *Execution, arg: i64, pop: *Void) i64 {
-        return arg;
+    pub fn @"0x42 i64.const"(ctx: *Execution, arg: Arg.I64, pop: *Void) i64 {
+        return arg.data;
     }
     pub fn @"0x43 f32.const"(ctx: *Execution, arg: Arg.F32, pop: *Void) f32 {
         return arg.data;
     }
-    pub fn @"0x44 f64.const"(ctx: *Execution, arg: f64, pop: *Void) f64 {
-        return arg;
+    pub fn @"0x44 f64.const"(ctx: *Execution, arg: Arg.F64, pop: *Void) f64 {
+        return arg.data;
     }
     pub fn @"0x45 i32.eqz"(ctx: *Execution, arg: Arg.Void, pop: *i32) i32 {
         return @boolToInt(pop.* == 0);

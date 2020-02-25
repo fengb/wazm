@@ -437,11 +437,11 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                                 .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
                                 .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
                                 .Type => .{ .I64 = try readVarint(u7, &payload.stream) },
-                                .U32z => Op.Fixed64.init(Op.Arg.U32z{
+                                .U32z => Op.Fixval.init(Op.Arg.U32z{
                                     .data = try readVarint(u32, &payload.stream),
                                     .reserved = try payload.stream.readByte(),
                                 }),
-                                .Mem => Op.Fixed64.init(Op.Arg.Mem{
+                                .Mem => Op.Fixval.init(Op.Arg.Mem{
                                     .offset = try readVarint(u32, &payload.stream),
                                     .align_ = try readVarint(u32, &payload.stream),
                                 }),
@@ -458,7 +458,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                                 //    for (array.data[0..size]) |*item| {
                                 //        item.* = try readVarint(u32, &payload.stream);
                                 //    }
-                                //    break :blk Op.Fixed64.init(array);
+                                //    break :blk Op.Fixval.init(array);
                                 //},
                             },
                         });

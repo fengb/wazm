@@ -36,7 +36,7 @@ pub const Func = struct {
 
 pub const Instr = struct {
     opcode: u8,
-    arg: Op.Fixed64,
+    arg: Op.Fixval,
 };
 
 pub const Value = union(Type.Value) {
@@ -66,7 +66,7 @@ pub const Instance = struct {
                     return error.TypeSignatureMismatch;
                 }
 
-                var converted_params: [20]Op.Fixed64 = undefined;
+                var converted_params: [20]Op.Fixval = undefined;
                 for (params) |param, i| {
                     if (param != func_type.params[i]) return error.TypeSignatureMismatch;
 
@@ -78,7 +78,7 @@ pub const Instance = struct {
                     };
                 }
 
-                var stack: [1 << 20]Op.Fixed64 align(8) = undefined;
+                var stack: [1 << 20]Op.Fixval align(8) = undefined;
                 const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
                 if (func_type.result) |return_type| {
                     return switch (return_type) {
