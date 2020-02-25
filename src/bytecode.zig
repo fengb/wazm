@@ -10,7 +10,7 @@ arena: std.heap.ArenaAllocator,
 
 /// Code=1
 @"type": []struct {
-    form: i7,
+    form: Type.Form, // TODO: why is this called form?
     param_types: []Type.Value,
     return_type: ?Type.Value,
 },
@@ -113,8 +113,8 @@ const Index = struct {
     const Global = enum(u32) { _ };
 };
 
-const Type = struct {
-    const Value = enum(i7) {
+pub const Type = struct {
+    pub const Value = enum(i7) {
         I32 = -0x01,
         I64 = -0x02,
         F32 = -0x03,
@@ -131,6 +131,10 @@ const Type = struct {
 
     const Elem = enum(i7) {
         Anyfunc = -0x10,
+    };
+
+    const Form = enum(i7) {
+        Func = -0x20,
     };
 };
 
@@ -307,10 +311,10 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             0x1 => {
                 const count = try readVarint(u32, &payload.stream);
                 for (try result.allocInto(&result.@"type", count)) |*t| {
-                    t.form = try readVarint(i7, &payload.stream);
+                    t.form = try readVarintEnum(Type.Form, &payload.stream);
 
                     const param_count = try readVarint(u32, &payload.stream);
-                    for (try result.allocInto(&t.param_types, count)) |*param_type| {
+                    for (try result.allocInto(&t.param_types, param_count)) |*param_type| {
                         param_type.* = try readVarintEnum(Type.Value, &payload.stream);
                     }
 
@@ -474,16 +478,31 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
 
 pub fn deinit(self: *Bytecode) void {
     self.arena.deinit();
-    self.* = Bytecode.init(self.arena);
+    self.* = undefined;
 }
 
-pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) Module {
+fn clone(comptime T: type, allocator: *std.mem.Allocator, data: []T) ![]T {
+    const result = try allocator.alloc(T, data.len);
+    std.mem.copy(T, result, data);
+    return result;
+}
+
+pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
     return Module{
         .memory = 0,
-        .func_types = &[0]Module.FuncType{},
+        .func_types = blk: {
+            var result = try arena.allocator.alloc(Module.FuncType, self.@"type".len);
+            for (self.@"type") |t, i| {
+                result[i] = .{
+                    .params = try clone(Type.Value, &arena.allocator, t.param_types),
+                    .result = t.return_type,
+                };
+            }
+            break :blk result;
+        },
         .funcs = &[0]Module.Func{},
         .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
         .arena = arena,
@@ -497,13 +516,24 @@ pub fn load(allocator: *std.mem.Allocator, in_stream: var) !Module {
     return bytecode.toModule(allocator);
 }
 
+const empty_raw_bytes = &[_]u8{ 0, 'a', 's', 'm', 1, 0, 0, 0 };
+
 test "empty module" {
-    const empty = [_]u8{ 0, 'a', 's', 'm', 1, 0, 0, 0 };
-    var ios = std.io.SliceInStream.init(&empty);
+    var ios = std.io.SliceInStream.init(empty_raw_bytes);
     var module = try Bytecode.load(std.testing.allocator, &ios.stream);
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 0), module.memory);
+    std.testing.expectEqual(@as(usize, 0), module.func_types.len);
     std.testing.expectEqual(@as(usize, 0), module.funcs.len);
     std.testing.expectEqual(@as(usize, 0), module.exports.count());
+}
+
+test "module with only type" {
+    const raw_bytes = empty_raw_bytes ++ "\x01\x04\x01\x60\x00\x00";
+    var ios = std.io.SliceInStream.init(raw_bytes);
+    var module = try Bytecode.load(std.testing.allocator, &ios.stream);
+    defer module.deinit();
+
+    std.testing.expectEqual(@as(usize, 1), module.func_types.len);
 }

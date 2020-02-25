@@ -1,4 +1,5 @@
 const std = @import("std");
+const Bytecode = @import("bytecode.zig");
 const Op = @import("op.zig");
 const Execution = @import("execution.zig");
 
@@ -11,32 +12,25 @@ funcs: []Func,
 exports: std.StringHashMap(Export),
 
 pub fn deinit(self: *Module) void {
-    self.memory = 0;
-    self.funcs = &[0]Func{};
-    self.exports = std.StringHashMap(Export).init(&self.arena.allocator);
     self.arena.deinit();
+    self.* = undefined;
 }
 
-pub const Type = enum {
-    I32,
-    I64,
-    F32,
-    F64,
-};
+pub const Type = Bytecode.Type;
 
 pub const Export = union(enum) {
     Func: usize,
 };
 
 pub const FuncType = struct {
-    params: []Type,
-    result: ?Type,
+    params: []Type.Value,
+    result: ?Type.Value,
 };
 
 pub const Func = struct {
     name: ?[]const u8,
     func_type: usize,
-    locals: []Type,
+    locals: []Type.Value,
     instrs: []Instr,
 };
 
@@ -45,7 +39,7 @@ pub const Instr = struct {
     arg: Op.Fixed64,
 };
 
-pub const Value = union {
+pub const Value = union(enum) {
     I32: i32,
     I64: i64,
     F32: f32,
@@ -60,7 +54,7 @@ pub const Instance = struct {
     // TODO: revisit if wasm ever becomes multi-threaded
     mutex: std.Mutex,
 
-    fn call(instance: *Instance, name: []const u8, params: []Module.Type) !Value {
+    fn call(instance: *Instance, name: []const u8, params: []Value) !Value {
         const lock = self.mutex.acquire();
         defer lock.release();
 
