@@ -146,6 +146,7 @@ pub const Arg = struct {
         Type,
         U32z,
         Mem,
+        //Array,
 
         fn init(comptime T: type) Kind {
             return switch (T) {
@@ -159,6 +160,7 @@ pub const Arg = struct {
                 Type => .Type,
                 U32z => .U32z,
                 Mem => .Mem,
+                //Array => .Array,
                 else => @compileError("Unsupported arg type: " ++ @typeName(T)),
             };
         }
@@ -188,6 +190,14 @@ pub const Arg = struct {
     pub const Mem = packed struct {
         offset: u32,
         align_: u32,
+    };
+
+    pub const Array = packed union {
+        pub const sentinel = std.math.maxInt(u32);
+
+        // TODO: increase Fixed64 to Fixed128 so we can use slice semantics
+        data: [*:sentinel]u32,
+        _pad: u64,
     };
 };
 
@@ -361,38 +371,47 @@ const Impl = struct {
     pub fn @"0x01 nop"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {}
 
     pub fn @"0x02 block"(ctx: *Execution, arg: Arg.Type, pop: *Void) void {
-        @panic("TODO");
+        // noop, setup metadata only
     }
 
     pub fn @"0x03 loop"(ctx: *Execution, arg: Arg.Type, pop: *Void) void {
-        @panic("TODO");
+        // noop, setup metadata only
     }
 
     pub fn @"0x04 if"(ctx: *Execution, arg: Arg.Type, pop: *i32) void {
-        @panic("TODO");
+        if (pop.* == 0) {
+            @panic("TODO find else block");
+        }
     }
 
     pub fn @"0x05 else"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
-        @panic("TODO");
+        // noop, setup metadata only
     }
 
     pub fn @"0x0B end"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
-        @panic("TODO");
+        // noop, setup metadata only
+        // Technically this can return the top value from the stack,
+        // but it would be immediately pushed on
     }
 
-    pub fn @"0x0C br"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
-        @panic("TODO");
+    pub fn @"0x0C br"(ctx: *Execution, arg: Arg.U32, pop: *Void) void {
+        ctx.unwindBlock(arg.data);
     }
-
-    pub fn @"0x0D br_if"(ctx: *Execution, arg: Arg.I32, pop: *Void) void {
-        @panic("TODO");
+    pub fn @"0x0D br_if"(ctx: *Execution, arg: Arg.U32, pop: *i32) void {
+        if (pop.* != 0) {
+            ctx.unwindBlock(arg.data);
+        }
     }
-
     pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Mem, pop: *Void) void {
         @panic("TODO");
+        //pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Array, pop: *u32) void {
+        //var len: usize = 0;
+        //while (arg.data[len] != Arg.Array.sentinel) : (len += 1) {}
+
+        //ctx.unwindBlock(arg.data[std.math.min(pop.*, len - 1)]);
     }
-    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *Void) Fixed64 {
-        return ctx.unwindCall();
+    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
+        _ = ctx.unwindCall();
     }
 
     pub fn @"0x10 call"(ctx: *Execution, arg: Arg.U32, pop: *Void) !void {

@@ -445,6 +445,21 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                                     .offset = try readVarint(u32, &payload.stream),
                                     .align_ = try readVarint(u32, &payload.stream),
                                 }),
+                                //.Array => blk: {
+                                //    const target_count = try readVarint(u32, &payload.stream);
+                                //    const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
+
+                                //    var raw_data = try result.arena.allocator.alloc(u32, size + 1);
+                                //    raw_data[size] = Op.Arg.Array.sentinel;
+
+                                //    var array = Op.Arg.Array{
+                                //        .data = raw_data[0..size :Op.Arg.Array.sentinel],
+                                //    };
+                                //    for (array.data[0..size]) |*item| {
+                                //        item.* = try readVarint(u32, &payload.stream);
+                                //    }
+                                //    break :blk Op.Fixed64.init(array);
+                                //},
                             },
                         });
                     } else |err| switch (err) {

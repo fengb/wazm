@@ -111,13 +111,21 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
 pub fn unwindCall(self: *Execution) Op.Fixed64 {
     const func = self.instance.module.funcs[self.current_frame.func];
     const func_type = self.instance.module.func_types[func.func_type];
+
     const result = self.pop(Op.Fixed64);
+
     self.stack_top = self.current_frame.top;
 
     const prev_frame = self.pop(Frame);
     self.dropN(func.locals.len + func_type.params.len);
 
+    self.push(Op.Fixed64, result) catch unreachable;
+
     return result;
+}
+
+pub fn unwindBlock(self: *Execution, target_idx: u32) void {
+    @panic("Implement me");
 }
 
 fn dropN(self: *Execution, size: usize) void {
