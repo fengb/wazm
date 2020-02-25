@@ -359,20 +359,20 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                 memory = list[1].data.integer;
             },
             swhash("func") => {
-                var params = std.ArrayList(Module.Type).init(&arena.allocator);
-                var locals = std.ArrayList(Module.Type).init(&arena.allocator);
-                var result: ?Module.Type = null;
+                var params = std.ArrayList(Module.Type.Value).init(&arena.allocator);
+                var locals = std.ArrayList(Module.Type.Value).init(&arena.allocator);
+                var result: ?Module.Type.Value = null;
 
                 var i: usize = 1;
                 while (i < list.len and list[i].data == .list) : (i += 1) {
                     const pair = list[i].data.list;
                     try ctx.validate(pair.len == 2, list[i].token.source);
                     try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
-                    const typ = switch (swhash(pair[1].data.keyword)) {
-                        swhash("i32") => Module.Type.I32,
-                        swhash("i64") => Module.Type.I64,
-                        swhash("f32") => Module.Type.F32,
-                        swhash("f64") => Module.Type.F64,
+                    const typ: Module.Type.Value = switch (swhash(pair[1].data.keyword)) {
+                        swhash("i32") => .I32,
+                        swhash("i64") => .I64,
+                        swhash("f32") => .F32,
+                        swhash("f64") => .F64,
                         else => return ctx.fail(pair[1].token.source),
                     };
 
@@ -499,15 +499,15 @@ test "parse" {
 
         const func_type = module.func_types[0];
         std.testing.expectEqual(@as(usize, 2), func_type.params.len);
-        std.testing.expectEqual(Module.Type.I32, func_type.params[0]);
-        std.testing.expectEqual(Module.Type.F32, func_type.params[1]);
-        std.testing.expectEqual(Module.Type.I64, func_type.result.?);
+        std.testing.expectEqual(Module.Type.Value.I32, func_type.params[0]);
+        std.testing.expectEqual(Module.Type.Value.F32, func_type.params[1]);
+        std.testing.expectEqual(Module.Type.Value.I64, func_type.result.?);
 
         const func = module.funcs[0];
         std.testing.expectEqual(@as(?[]const u8, null), func.name);
 
         std.testing.expectEqual(@as(usize, 1), func.locals.len);
-        std.testing.expectEqual(Module.Type.F64, func.locals[0]);
+        std.testing.expectEqual(Module.Type.Value.F64, func.locals[0]);
 
         std.testing.expectEqual(@as(usize, 3), func.instrs.len);
     }
