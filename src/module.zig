@@ -39,7 +39,7 @@ pub const Instr = struct {
     arg: Op.Fixed64,
 };
 
-pub const Value = union(enum) {
+pub const Value = union(Type.Value) {
     I32: i32,
     I64: i64,
     F32: f32,
@@ -54,11 +54,48 @@ pub const Instance = struct {
     // TODO: revisit if wasm ever becomes multi-threaded
     mutex: std.Mutex,
 
-    fn call(instance: *Instance, name: []const u8, params: []Value) !Value {
+    fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
         const lock = self.mutex.acquire();
         defer lock.release();
 
-        var stack: [1 << 10]u8 = undefined;
-        Execution.run(self, &stack, name, params);
+        switch (self.module.exports.getValue(name) orelse return error.ExportNotFound) {
+            .Func => |func_id| {
+                const func = self.module.funcs[func_id];
+                const func_type = self.module.func_types[func.func_type];
+                if (params.len != func_type.params.len) {
+                    return error.TypeSignatureMismatch;
+                }
+
+                var converted_params: [20]Op.Fixed64 = undefined;
+                for (params) |param, i| {
+                    if (param != func_type.params[i]) return error.TypeSignatureMismatch;
+
+                    converted_params[i] = switch (param) {
+                        .I32 => |data| .{ .I32 = data },
+                        .I64 => |data| .{ .I64 = data },
+                        .F32 => |data| .{ .F32 = data },
+                        .F64 => |data| .{ .F64 = data },
+                    };
+                }
+
+                var stack: [1 << 20]Op.Fixed64 align(8) = undefined;
+                const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
+                if (func_type.result) |return_type| {
+                    return switch (return_type) {
+                        .I32 => Value{ .I32 = result.I32 },
+                        .I64 => Value{ .I64 = result.I64 },
+                        .F32 => Value{ .F32 = result.F32 },
+                        .F64 => Value{ .F64 = result.F64 },
+                    };
+                } else {
+                    return null;
+                }
+            },
+            else => return error.ExportNotAFunction,
+        }
     }
 };
+
+test "" {
+    _ = Instance.call;
+}

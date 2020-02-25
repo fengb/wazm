@@ -45,7 +45,9 @@ pub const sparse = blk: {
                 .ErrorUnion => |eu_info| if (eu_info.payload == void) null else Stack.Change.init(eu_info.payload),
                 else => Stack.Change.init(return_type),
             },
-            .pop = switch (@typeInfo(pop_ref_type)) {
+            .pop = if (pop_ref_type == Fixed64.Void)
+                &[0]Stack.Change{}
+            else switch (@typeInfo(pop_ref_type)) {
                 .Int, .Float, .Union => Stack.Change.initSlice(.{pop_ref_type}),
                 .Struct => |s_info| blk: {
                     var pop_changes: [s_info.fields.len]Stack.Change = undefined;
@@ -287,18 +289,37 @@ pub const WasmTrap = error{
     IndirectCallTypeMismatch,
 };
 
-pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]Fixed64) WasmTrap!?Fixed64 {
+pub fn step(self: Op, ctx: *Execution, arg: Fixed64, pop: [*]align(8) Fixed64) WasmTrap!?Fixed64 {
     // TODO: test out function pointers for performance comparison
     inline for (publicFunctions(Impl)) |decl| {
-        const opcode = comptime parseOpcode(func.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]);
+        @setEvalBranchQuota(10000);
+        const opcode = comptime parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]);
         if (self.code == opcode) {
-            const result = @field(Impl, func.name)(
+            const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
+            const result = @field(Impl, decl.name)(
                 ctx,
-                @bitCast(func.args[1].arg_type.?, arg),
-                @bitCast(func.args[2].arg_type.?, pop),
+                switch (@typeInfo(args[1].arg_type.?)) {
+                    .Enum => @intToEnum(args[1].arg_type.?, arg.U64),
+                    else => @bitCast(args[1].arg_type.?, arg),
+                },
+                @intToPtr(args[2].arg_type.?, 8),
+                //@ptrCast(args[2].arg_type.?, pop),
+                //@bitCast(args[2].arg_type.?, pop),
             );
 
-            return if (@TypeOf(result) == void) null else result;
+            const result_value = if (@typeInfo(@TypeOf(result)) == .ErrorUnion) try result else result;
+
+            return switch (@TypeOf(result_value)) {
+                void => null,
+                i32 => Fixed64{ .I32 = result_value },
+                u32 => Fixed64{ .U32 = result_value },
+                i64 => Fixed64{ .I64 = result_value },
+                u64 => Fixed64{ .U64 = result_value },
+                f32 => Fixed64{ .F32 = result_value },
+                f64 => Fixed64{ .F64 = result_value },
+                Fixed64 => result_value,
+                else => @compileError("Op return unimplemented: " ++ @typeName(@TypeOf(result_value))),
+            };
         }
     }
 
@@ -314,8 +335,7 @@ fn parseOpcode(name: []const u8) !u8 {
 }
 
 const Impl = struct {
-    // TODO: replace once Zig can define tuple types
-    const None = struct {};
+    const Void = Fixed64.Void;
 
     // TODO: replace once Zig can define tuple types
     fn Pair(comptime T0: type, comptime T1: type) type {
@@ -334,17 +354,17 @@ const Impl = struct {
         };
     }
 
-    pub fn @"0x00 unreachable"(ctx: *Execution, arg: Arg.Void, pop: *None) !void {
+    pub fn @"0x00 unreachable"(ctx: *Execution, arg: Arg.Void, pop: *Void) !void {
         return error.Unreachable;
     }
 
-    pub fn @"0x01 nop"(ctx: *Execution, arg: Arg.Void, pop: *None) void {}
+    pub fn @"0x01 nop"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {}
 
-    pub fn @"0x02 block"(ctx: *Execution, arg: Arg.Type, pop: *None) void {
+    pub fn @"0x02 block"(ctx: *Execution, arg: Arg.Type, pop: *Void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x03 loop"(ctx: *Execution, arg: Arg.Type, pop: *None) void {
+    pub fn @"0x03 loop"(ctx: *Execution, arg: Arg.Type, pop: *Void) void {
         @panic("TODO");
     }
 
@@ -352,30 +372,30 @@ const Impl = struct {
         @panic("TODO");
     }
 
-    pub fn @"0x05 else"(ctx: *Execution, arg: Arg.Void, pop: *None) void {
+    pub fn @"0x05 else"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0B end"(ctx: *Execution, arg: Arg.Void, pop: *None) void {
+    pub fn @"0x0B end"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0C br"(ctx: *Execution, arg: Arg.Void, pop: *None) void {
+    pub fn @"0x0C br"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0D br_if"(ctx: *Execution, arg: Arg.I32, pop: *None) void {
+    pub fn @"0x0D br_if"(ctx: *Execution, arg: Arg.I32, pop: *Void) void {
         @panic("TODO");
     }
 
-    pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Mem, pop: *None) void {
+    pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Mem, pop: *Void) void {
         @panic("TODO");
     }
-    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *None) Fixed64 {
+    pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *Void) Fixed64 {
         return ctx.unwindCall();
     }
 
-    pub fn @"0x10 call"(ctx: *Execution, arg: Arg.U32, pop: *None) !void {
+    pub fn @"0x10 call"(ctx: *Execution, arg: Arg.U32, pop: *Void) !void {
         try ctx.initCall(arg.data);
     }
     pub fn @"0x11 call_indirect"(ctx: *Execution, arg: Arg.U32z, pop: *u32) !void {
@@ -397,7 +417,7 @@ const Impl = struct {
         return if (pop._2 == 0) pop._0 else pop._1;
     }
 
-    pub fn @"0x20 local.get"(ctx: *Execution, arg: Arg.U32, pop: *None) Fixed64 {
+    pub fn @"0x20 local.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixed64 {
         return ctx.getLocal(arg.data);
     }
     pub fn @"0x21 local.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
@@ -407,7 +427,7 @@ const Impl = struct {
         ctx.setLocal(arg.data, pop.*);
         return pop.*;
     }
-    pub fn @"0x23 global.get"(ctx: *Execution, arg: Arg.U32, pop: *None) Fixed64 {
+    pub fn @"0x23 global.get"(ctx: *Execution, arg: Arg.U32, pop: *Void) Fixed64 {
         return ctx.getGlobal(arg.data);
     }
     pub fn @"0x24 global.set"(ctx: *Execution, arg: Arg.U32, pop: *Fixed64) void {
@@ -492,7 +512,7 @@ const Impl = struct {
         const bytes = try ctx.memGet(pop._0, mem.offset, 4);
         std.mem.writeIntLittle(i32, bytes, @truncate(i32, pop._1));
     }
-    pub fn @"0x3F memory.size"(ctx: *Execution, arg: Arg.Void, pop: *None) u32 {
+    pub fn @"0x3F memory.size"(ctx: *Execution, arg: Arg.Void, pop: *Void) u32 {
         return @intCast(u32, ctx.instance.memory.len % 65536);
     }
 
@@ -507,16 +527,16 @@ const Impl = struct {
         };
         return @intCast(i32, current);
     }
-    pub fn @"0x41 i32.const"(ctx: *Execution, arg: Arg.I32, pop: *None) i32 {
+    pub fn @"0x41 i32.const"(ctx: *Execution, arg: Arg.I32, pop: *Void) i32 {
         return arg.data;
     }
-    pub fn @"0x42 i64.const"(ctx: *Execution, arg: i64, pop: *None) i64 {
+    pub fn @"0x42 i64.const"(ctx: *Execution, arg: i64, pop: *Void) i64 {
         return arg;
     }
-    pub fn @"0x43 f32.const"(ctx: *Execution, arg: Arg.F32, pop: *None) f32 {
+    pub fn @"0x43 f32.const"(ctx: *Execution, arg: Arg.F32, pop: *Void) f32 {
         return arg.data;
     }
-    pub fn @"0x44 f64.const"(ctx: *Execution, arg: f64, pop: *None) f64 {
+    pub fn @"0x44 f64.const"(ctx: *Execution, arg: f64, pop: *Void) f64 {
         return arg;
     }
     pub fn @"0x45 i32.eqz"(ctx: *Execution, arg: Arg.Void, pop: *i32) i32 {

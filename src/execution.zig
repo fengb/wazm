@@ -5,7 +5,7 @@ const Module = @import("module.zig");
 pub const Execution = @This();
 
 instance: *Module.Instance,
-stack: []u64,
+stack: []align(8) Op.Fixed64,
 stack_top: usize,
 
 current_frame: Frame,
@@ -50,42 +50,43 @@ const Frame = packed struct {
     }
 };
 
-fn run(instance: *Instance, stack: []u8, func_name: []const u8, params: []Module.Type) !Module.Op.Fixed64 {
-    var ctx = Execution{
+pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixed64, func_id: usize, params: []Op.Fixed64) !Op.Fixed64 {
+    var self = Execution{
         .instance = instance,
-        .stack = @bytesToSlice([]u64, stack),
+        .stack = stack,
         .stack_top = stack.len,
         .current_frame = Frame.terminus(),
     };
 
     // initCall assumes the params are already pushed onto the stack
     for (params) |param| {
-        ctx.push(param);
+        try self.push(Op.Fixed64, param);
     }
 
-    initCall(func_id);
+    try self.initCall(func_id);
 
     while (true) {
-        const func = self.getFunc(self.current_frame.func);
+        const func = self.instance.module.funcs[self.current_frame.func];
         if (self.current_frame.instr > func.instrs.len) {
             const result = self.unwindCall();
 
             if (self.current_frame.isTerminus()) {
                 std.debug.assert(self.stack_top == self.stack.len);
-                return value;
+                return result;
             } else {
-                self.push(result);
+                try self.push(Op.Fixed64, result);
             }
         } else {
             const instr = func.instrs[self.current_frame.instr];
-            const op = Op.all[instr.opcode];
+            const op = Op.all[instr.opcode].?;
 
-            const pop: [*]Op.Fixed64 = &self.stack[self.stack_top];
+            //const pop_array: [*]align(8) Op.Fixed64 = self.stack.ptr + self.stack_top;
+            const pop_array = @intToPtr([*]align(8) Op.Fixed64, 8);
             self.stack_top += op.pop.len;
 
-            const result = try op.step(&self, instr.arg, pop);
+            const result = try op.step(&self, instr.arg, pop_array);
             if (result) |res| {
-                self.push(result);
+                try self.push(@TypeOf(res), res);
             }
             self.current_frame.instr += 1;
         }
@@ -131,5 +132,5 @@ fn pop(self: *Execution, comptime T: type) T {
 
 fn push(self: *Execution, comptime T: type, value: T) !void {
     self.stack_top = try std.math.sub(usize, self.stack_top, 1);
-    self.stack[self.stack_top] = @bitCast(u64, value);
+    self.stack[self.stack_top] = @bitCast(Op.Fixed64, value);
 }
