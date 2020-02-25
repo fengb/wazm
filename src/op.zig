@@ -161,7 +161,7 @@ pub const Arg = struct {
         Type,
         U32z,
         Mem,
-        //Array,
+        Array,
 
         fn init(comptime T: type) Kind {
             return switch (T) {
@@ -175,7 +175,7 @@ pub const Arg = struct {
                 Type => .Type,
                 U32z => .U32z,
                 Mem => .Mem,
-                //Array => .Array,
+                Array => .Array,
                 else => @compileError("Unsupported arg type: " ++ @typeName(T)),
             };
         }
@@ -421,13 +421,9 @@ const Impl = struct {
             ctx.unwindBlock(arg.data);
         }
     }
-    pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Mem, pop: *Void) void {
-        @panic("TODO");
-        //pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Array, pop: *u32) void {
-        //var len: usize = 0;
-        //while (arg.data[len] != Arg.Array.sentinel) : (len += 1) {}
-
-        //ctx.unwindBlock(arg.data[std.math.min(pop.*, len - 1)]);
+    pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Array, pop: *u32) void {
+        const idx = std.math.min(pop.*, arg.len - 1); // default to last item. Pretty handy!
+        ctx.unwindBlock(arg.data[idx]);
     }
     pub fn @"0x0F return"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
         _ = ctx.unwindCall();

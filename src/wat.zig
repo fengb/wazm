@@ -438,7 +438,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                                 try ctx.validate(next.data == .float, next.token.source);
                                 break :blk .{ .F64 = @floatCast(f64, next.data.float) };
                             },
-                            .U32z, .Mem => {
+                            .U32z, .Mem, .Array => {
                                 @panic(list[i].data.keyword);
                             },
                         },
