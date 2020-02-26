@@ -79,13 +79,12 @@ pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usi
             }
         } else {
             const instr = func.instrs[self.current_frame.instr];
-            const op = Op.all[instr.opcode].?;
 
             //const pop_array: [*]align(8) Op.Fixval = self.stack.ptr + self.stack_top;
             const pop_array = @intToPtr([*]align(8) Op.Fixval, 8);
-            self.stack_top += op.pop.len;
+            self.stack_top += instr.op.pop.len;
 
-            const result = try op.step(&self, instr.arg, pop_array);
+            const result = try instr.op.step(&self, instr.arg, pop_array);
             if (result) |res| {
                 try self.push(@TypeOf(res), res);
             }
@@ -134,12 +133,11 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
     while (true) {
         self.current_frame.instr += 1;
         const instr = func.instrs[self.current_frame.instr];
-        const op = Op.all[instr.opcode].?;
 
-        stack_change -= @intCast(isize, op.pop.len);
-        stack_change += @intCast(isize, @boolToInt(op.push != null));
+        stack_change -= @intCast(isize, instr.op.pop.len);
+        stack_change += @intCast(isize, @boolToInt(instr.op.push != null));
 
-        switch (op.code) {
+        switch (instr.op.code) {
             0x02, // block
             0x03, // loop
             0x04, // if
@@ -158,7 +156,7 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
                     std.debug.assert(stack_change <= 0);
                     self.dropN(std.math.absCast(stack_change));
 
-                    if (begin.opcode == 0x03) {
+                    if (begin.op.code == 0x03) {
                         // self.current_frame.instr = begin_idx + 1;
                     } else if (block_type != .Void) {
                         self.push(Op.Fixval, top_value) catch unreachable;

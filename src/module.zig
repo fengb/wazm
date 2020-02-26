@@ -35,7 +35,7 @@ pub const Func = struct {
 };
 
 pub const Instr = struct {
-    opcode: u8,
+    op: *const Op,
     arg: Op.Fixval,
 };
 

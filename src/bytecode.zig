@@ -425,42 +425,45 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                     }
                     var code = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                     while (payload.stream.readByte()) |opcode| {
-                        const op = Op.all[opcode] orelse return error.InvalidOpCode;
-                        try code.append(.{
-                            .opcode = op.code,
-                            .arg = switch (op.arg_kind) {
-                                .Void => .{ .I64 = 0 },
-                                .I32 => .{ .I32 = try readVarint(i32, &payload.stream) },
-                                .U32 => .{ .U32 = try readVarint(u32, &payload.stream) },
-                                .I64 => .{ .I64 = try readVarint(i64, &payload.stream) },
-                                .U64 => .{ .U64 = try readVarint(u64, &payload.stream) },
-                                .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
-                                .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
-                                .Type => .{ .I64 = try readVarint(u7, &payload.stream) },
-                                .U32z => Op.Fixval.init(Op.Arg.U32z{
-                                    .data = try readVarint(u32, &payload.stream),
-                                    .reserved = try payload.stream.readByte(),
-                                }),
-                                .Mem => Op.Fixval.init(Op.Arg.Mem{
-                                    .offset = try readVarint(u32, &payload.stream),
-                                    .align_ = try readVarint(u32, &payload.stream),
-                                }),
-                                .Array => blk: {
-                                    const target_count = try readVarint(u32, &payload.stream);
-                                    const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
-                                    const data = try result.arena.allocator.alloc(u32, size);
+                        if (Op.all[opcode]) |*op| {
+                            try code.append(.{
+                                .op = op,
+                                .arg = switch (op.arg_kind) {
+                                    .Void => .{ .I64 = 0 },
+                                    .I32 => .{ .I32 = try readVarint(i32, &payload.stream) },
+                                    .U32 => .{ .U32 = try readVarint(u32, &payload.stream) },
+                                    .I64 => .{ .I64 = try readVarint(i64, &payload.stream) },
+                                    .U64 => .{ .U64 = try readVarint(u64, &payload.stream) },
+                                    .F32 => .{ .F64 = try payload.stream.readIntLittle(f32) },
+                                    .F64 => .{ .F64 = try payload.stream.readIntLittle(f64) },
+                                    .Type => .{ .I64 = try readVarint(u7, &payload.stream) },
+                                    .U32z => Op.Fixval.init(Op.Arg.U32z{
+                                        .data = try readVarint(u32, &payload.stream),
+                                        .reserved = try payload.stream.readByte(),
+                                    }),
+                                    .Mem => Op.Fixval.init(Op.Arg.Mem{
+                                        .offset = try readVarint(u32, &payload.stream),
+                                        .align_ = try readVarint(u32, &payload.stream),
+                                    }),
+                                    .Array => blk: {
+                                        const target_count = try readVarint(u32, &payload.stream);
+                                        const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
+                                        const data = try result.arena.allocator.alloc(u32, size);
 
-                                    var array = Op.Arg.Array{
-                                        .data = data.ptr,
-                                        .len = data.len,
-                                    };
-                                    for (data) |*item| {
-                                        item.* = try readVarint(u32, &payload.stream);
-                                    }
-                                    break :blk Op.Fixval.init(array);
+                                        var array = Op.Arg.Array{
+                                            .data = data.ptr,
+                                            .len = data.len,
+                                        };
+                                        for (data) |*item| {
+                                            item.* = try readVarint(u32, &payload.stream);
+                                        }
+                                        break :blk Op.Fixval.init(array);
+                                    },
                                 },
-                            },
-                        });
+                            });
+                        } else {
+                            return error.InvalidOpCode;
+                        }
                     } else |err| switch (err) {
                         error.EndOfStream => {},
                         else => return err,

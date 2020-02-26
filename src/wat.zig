@@ -389,60 +389,63 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                 while (pop(list, &i)) |val| {
                     try ctx.validate(val.data == .keyword, val.token.source);
 
-                    const op = Op.byName(val.data.keyword) orelse return ctx.fail(val.token.source);
-                    try instrs.append(.{
-                        .opcode = op.code,
-                        .arg = switch (op.arg_kind) {
-                            .Void => .{ .I64 = 0 },
-                            .Type => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .keyword, next.token.source);
-                                break :blk Op.Fixval.init(
-                                    @as(Op.Arg.Type, switch (swhash(next.data.keyword)) {
-                                        swhash("void") => .Void,
-                                        swhash("i32") => .I32,
-                                        swhash("i64") => .I64,
-                                        swhash("f32") => .F32,
-                                        swhash("f64") => .F64,
-                                        else => return ctx.fail(next.token.source),
-                                    }),
-                                );
+                    if (Op.byName(val.data.keyword)) |*op| {
+                        try instrs.append(.{
+                            .op = op,
+                            .arg = switch (op.arg_kind) {
+                                .Void => .{ .I64 = 0 },
+                                .Type => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .keyword, next.token.source);
+                                    break :blk Op.Fixval.init(
+                                        @as(Op.Arg.Type, switch (swhash(next.data.keyword)) {
+                                            swhash("void") => .Void,
+                                            swhash("i32") => .I32,
+                                            swhash("i64") => .I64,
+                                            swhash("f32") => .F32,
+                                            swhash("f64") => .F64,
+                                            else => return ctx.fail(next.token.source),
+                                        }),
+                                    );
+                                },
+                                .I32 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .integer, next.token.source);
+                                    break :blk .{ .I32 = @intCast(i32, next.data.integer) };
+                                },
+                                .U32 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .integer, next.token.source);
+                                    break :blk .{ .U32 = @intCast(u32, next.data.integer) };
+                                },
+                                .I64 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .integer, next.token.source);
+                                    break :blk .{ .I64 = @intCast(i64, next.data.integer) };
+                                },
+                                .U64 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .integer, next.token.source);
+                                    break :blk .{ .U64 = @intCast(u64, next.data.integer) };
+                                },
+                                .F32 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .float, next.token.source);
+                                    break :blk .{ .F64 = @floatCast(f32, next.data.float) };
+                                },
+                                .F64 => blk: {
+                                    const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
+                                    try ctx.validate(next.data == .float, next.token.source);
+                                    break :blk .{ .F64 = @floatCast(f64, next.data.float) };
+                                },
+                                .U32z, .Mem, .Array => {
+                                    @panic(list[i].data.keyword);
+                                },
                             },
-                            .I32 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk .{ .I32 = @intCast(i32, next.data.integer) };
-                            },
-                            .U32 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk .{ .U32 = @intCast(u32, next.data.integer) };
-                            },
-                            .I64 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk .{ .I64 = @intCast(i64, next.data.integer) };
-                            },
-                            .U64 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .integer, next.token.source);
-                                break :blk .{ .U64 = @intCast(u64, next.data.integer) };
-                            },
-                            .F32 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .float, next.token.source);
-                                break :blk .{ .F64 = @floatCast(f32, next.data.float) };
-                            },
-                            .F64 => blk: {
-                                const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
-                                try ctx.validate(next.data == .float, next.token.source);
-                                break :blk .{ .F64 = @floatCast(f64, next.data.float) };
-                            },
-                            .U32z, .Mem, .Array => {
-                                @panic(list[i].data.keyword);
-                            },
-                        },
-                    });
+                        });
+                    } else {
+                        return ctx.fail(val.token.source);
+                    }
                 }
 
                 try func_types.append(.{
