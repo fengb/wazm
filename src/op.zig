@@ -12,7 +12,7 @@ push: ?Stack.Change,
 pop: []Stack.Change,
 
 pub const sparse = blk: {
-    @setEvalBranchQuota(100000);
+    @setEvalBranchQuota(10000);
     const decls = publicFunctions(Impl);
     var result: [decls.len]Op = undefined;
     for (decls) |decl, i| {
@@ -61,8 +61,6 @@ pub const sparse = blk: {
         };
     }
 
-    std.sort.sort(Op, &result, Op.lessThan);
-
     break :blk result;
 };
 
@@ -80,17 +78,9 @@ pub const all = blk: {
 };
 
 pub fn byName(needle: []const u8) ?Op {
-    var curr: usize = 0;
-    var size = sparse.len;
-    while (size > 0) {
-        const offset = size % 2;
-
-        size /= 2;
-        const meta = sparse[curr + size];
-        switch (std.mem.order(u8, needle, meta.name)) {
-            .lt => {},
-            .eq => return meta,
-            .gt => curr += size + offset,
+    inline for (sparse) |op| {
+        if (std.mem.eql(u8, op.name, needle)) {
+            return op;
         }
     }
     return null;
