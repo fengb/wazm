@@ -149,16 +149,19 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
                 } else {
                     // TODO: actually find the corresponding opening block
                     const begin = instr;
-                    const block_type = @intToEnum(Op.Arg.Type, begin.arg.U64);
                     const top_value = self.stack[self.stack_top];
 
                     std.debug.assert(stack_change <= 0);
                     self.dropN(std.math.absCast(stack_change));
 
-                    if (std.mem.eql(u8, "loop", begin.op.name)) {
-                        // self.current_frame.instr = begin_idx + 1;
-                    } else if (block_type != .Void) {
+                    const block_type = @intToEnum(Op.Arg.Type, begin.arg.U64);
+                    if (block_type != .Void) {
                         self.push(Op.Fixval, top_value) catch unreachable;
+                    }
+
+                    if (std.mem.eql(u8, "loop", begin.op.name)) {
+                        // Inside loop blocks, br works like "continue" and jumps back to the beginning
+                        // self.current_frame.instr = begin_idx + 1;
                     }
                     return;
                 }
