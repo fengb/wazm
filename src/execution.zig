@@ -126,7 +126,49 @@ pub fn unwindCall(self: *Execution) Op.Fixval {
 }
 
 pub fn unwindBlock(self: *Execution, target_idx: u32) void {
-    @panic("Implement me");
+    const func = self.instance.module.funcs[self.current_frame.func];
+
+    var remaining = target_idx;
+    var stack_change: isize = 0;
+    // TODO: test this...
+    while (true) {
+        self.current_frame.instr += 1;
+        const instr = func.instrs[self.current_frame.instr];
+        const op = Op.all[instr.opcode].?;
+
+        stack_change -= @intCast(isize, op.pop.len);
+        stack_change += @intCast(isize, @boolToInt(op.push != null));
+
+        switch (op.code) {
+            0x02, // block
+            0x03, // loop
+            0x04, // if
+            => {
+                remaining += 1;
+            },
+            0x0B => {
+                if (remaining > 0) {
+                    remaining -= 1;
+                } else {
+                    // TODO: actually find the corresponding opening block
+                    const begin = instr;
+                    const block_type = @intToEnum(Op.Arg.Type, begin.arg.U64);
+                    const top_value = self.stack[self.stack_top];
+
+                    std.debug.assert(stack_change <= 0);
+                    self.dropN(std.math.absCast(stack_change));
+
+                    if (begin.opcode == 0x03) {
+                        // self.current_frame.instr = begin_idx + 1;
+                    } else if (block_type != .Void) {
+                        self.push(Op.Fixval, top_value) catch unreachable;
+                    }
+                    return;
+                }
+            },
+            else => {},
+        }
+    }
 }
 
 fn dropN(self: *Execution, size: usize) void {

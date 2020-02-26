@@ -399,12 +399,13 @@ const Impl = struct {
 
     pub fn @"0x04 if"(ctx: *Execution, arg: Arg.Type, pop: *i32) void {
         if (pop.* == 0) {
-            @panic("TODO find else block");
+            @panic("TODO find else or end");
         }
     }
 
     pub fn @"0x05 else"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
-        // noop, setup metadata only
+        // If we are executing this instruction, it means the `if` fired, so we should skip until the end
+        ctx.unwindBlock(0);
     }
 
     pub fn @"0x0B end"(ctx: *Execution, arg: Arg.Void, pop: *Void) void {
