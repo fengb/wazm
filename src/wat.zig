@@ -1,13 +1,7 @@
 const std = @import("std");
 const Module = @import("module.zig");
 const Op = @import("op.zig");
-
-fn swhash(string: []const u8) u128 {
-    if (string.len >= 16) return std.math.maxInt(u128);
-    var tmp = [_]u8{0} ** 16;
-    std.mem.copy(u8, &tmp, string);
-    return std.mem.readIntLittle(u128, &tmp);
-}
+const util = @import("util.zig");
 
 const ParseContext = struct {
     string: []const u8,
@@ -351,14 +345,15 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
         try ctx.validate(list.len > 0, elem.token.source);
         try ctx.validate(list[0].data == .keyword, list[0].token.source);
 
-        switch (swhash(list[0].data.keyword)) {
-            swhash("memory") => {
+        const swhash = util.Swhash(8);
+        switch (swhash.match(list[0].data.keyword)) {
+            swhash.case("memory") => {
                 try ctx.validate(list.len == 2, elem.token.source);
                 try ctx.validate(list[1].data == .integer, list[1].token.source);
 
                 memory = list[1].data.integer;
             },
-            swhash("func") => {
+            swhash.case("func") => {
                 var params = std.ArrayList(Module.Type.Value).init(&arena.allocator);
                 var locals = std.ArrayList(Module.Type.Value).init(&arena.allocator);
                 var result: ?Module.Type.Value = null;
@@ -368,19 +363,19 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                     const pair = list[i].data.list;
                     try ctx.validate(pair.len == 2, list[i].token.source);
                     try ctx.validate(pair[1].data == .keyword, pair[1].token.source);
-                    const typ: Module.Type.Value = switch (swhash(pair[1].data.keyword)) {
-                        swhash("i32") => .I32,
-                        swhash("i64") => .I64,
-                        swhash("f32") => .F32,
-                        swhash("f64") => .F64,
+                    const typ: Module.Type.Value = switch (swhash.match(pair[1].data.keyword)) {
+                        swhash.case("i32") => .I32,
+                        swhash.case("i64") => .I64,
+                        swhash.case("f32") => .F32,
+                        swhash.case("f64") => .F64,
                         else => return ctx.fail(pair[1].token.source),
                     };
 
                     try ctx.validate(pair[0].data == .keyword, pair[0].token.source);
-                    switch (swhash(pair[0].data.keyword)) {
-                        swhash("param") => try params.append(typ),
-                        swhash("local") => try locals.append(typ),
-                        swhash("result") => result = typ,
+                    switch (swhash.match(pair[0].data.keyword)) {
+                        swhash.case("param") => try params.append(typ),
+                        swhash.case("local") => try locals.append(typ),
+                        swhash.case("result") => result = typ,
                         else => return ctx.fail(pair[0].token.source),
                     }
                 }
@@ -398,12 +393,12 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                                     const next = pop(list, &i) orelse return ctx.fail(ctx.eof());
                                     try ctx.validate(next.data == .keyword, next.token.source);
                                     break :blk Op.Fixval.init(
-                                        @as(Op.Arg.Type, switch (swhash(next.data.keyword)) {
-                                            swhash("void") => .Void,
-                                            swhash("i32") => .I32,
-                                            swhash("i64") => .I64,
-                                            swhash("f32") => .F32,
-                                            swhash("f64") => .F64,
+                                        @as(Op.Arg.Type, switch (swhash.match(next.data.keyword)) {
+                                            swhash.case("void") => .Void,
+                                            swhash.case("i32") => .I32,
+                                            swhash.case("i64") => .I64,
+                                            swhash.case("f32") => .F32,
+                                            swhash.case("f64") => .F64,
                                             else => return ctx.fail(next.token.source),
                                         }),
                                     );

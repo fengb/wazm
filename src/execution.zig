@@ -1,6 +1,7 @@
 const std = @import("std");
 const Op = @import("op.zig");
 const Module = @import("module.zig");
+const util = @import("util.zig");
 
 pub const Execution = @This();
 
@@ -137,14 +138,12 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
         stack_change -= @intCast(isize, instr.op.pop.len);
         stack_change += @intCast(isize, @boolToInt(instr.op.push != null));
 
-        switch (instr.op.code) {
-            0x02, // block
-            0x03, // loop
-            0x04, // if
-            => {
+        const swh = util.Swhash(8);
+        switch (swh.match(instr.op.name)) {
+            swh.case("block"), swh.case("loop"), swh.case("if") => {
                 remaining += 1;
             },
-            0x0B => {
+            swh.case("end") => {
                 if (remaining > 0) {
                     remaining -= 1;
                 } else {
@@ -156,7 +155,7 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
                     std.debug.assert(stack_change <= 0);
                     self.dropN(std.math.absCast(stack_change));
 
-                    if (begin.op.code == 0x03) {
+                    if (std.mem.eql(u8, "loop", begin.op.name)) {
                         // self.current_frame.instr = begin_idx + 1;
                     } else if (block_type != .Void) {
                         self.push(Op.Fixval, top_value) catch unreachable;
