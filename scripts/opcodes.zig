@@ -34,8 +34,19 @@ fn outputHtml(fos: *std.fs.File.OutStream) !void {
         if (i % 0x10 == 0x0) {
             try fos.stream.print("<tr>\n<th>{X}_</th>\n", .{i / 16});
         }
-        const name = if (op) |o| o.name else "";
-        try fos.stream.print("<td>{}</td>\n", .{name});
+        try fos.stream.print("<td style='white-space: nowrap; font-family: monospace'>\n", .{});
+        if (op) |o| {
+            try fos.stream.print("<strong>{}</strong><br />\n", .{o.name});
+            try fos.stream.print("(", .{});
+            if (o.pop.len > 1) {
+                for (o.pop) |change| {
+                    try fos.stream.print("{} ", .{@tagName(change)});
+                }
+            }
+            try fos.stream.print(") ", .{});
+            try fos.stream.print("&rarr; ({})\n", .{if (o.push) |change| @tagName(change) else ""});
+        }
+        try fos.stream.print("</td>", .{});
 
         if (i % 0x10 == 0xF) {
             try fos.stream.print("</tr>\n", .{});
