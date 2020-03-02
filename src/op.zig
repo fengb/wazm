@@ -452,83 +452,74 @@ const Impl = struct {
         ctx.setGlobal(arg.data, pop.*);
     }
     pub fn @"0x28 i32.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return std.mem.readIntLittle(i32, try ctx.memGet(pop.data, mem.offset, 4));
+        return try ctx.load(i32, pop.data, mem.offset);
     }
     pub fn @"0x29 i64.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(i64, try ctx.memGet(pop.data, mem.offset, 8));
+        return try ctx.load(i64, pop.data, mem.offset);
     }
     pub fn @"0x2A f32.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !f32 {
-        return std.mem.readIntLittle(f32, try ctx.memGet(pop.data, mem.offset, 4));
+        return try ctx.load(f32, pop.data, mem.offset);
     }
     pub fn @"0x2B f64.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !f64 {
-        return std.mem.readIntLittle(f64, try ctx.memGet(pop.data, mem.offset, 8));
+        return try ctx.load(f64, pop.data, mem.offset);
     }
     pub fn @"0x2C i32.load8_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return std.mem.readIntLittle(i8, try ctx.memGet(pop.data, mem.offset, 1));
+        return try ctx.load(i8, pop.data, mem.offset);
     }
     pub fn @"0x2D i32.load8_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !u32 {
-        return std.mem.readIntLittle(u8, try ctx.memGet(pop.data, mem.offset, 1));
+        return try ctx.load(u8, pop.data, mem.offset);
     }
     pub fn @"0x2E i32.load16_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return std.mem.readIntLittle(i16, try ctx.memGet(pop.data, mem.offset, 2));
+        return try ctx.load(i16, pop.data, mem.offset);
     }
     pub fn @"0x2F i32.load16_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !u32 {
-        return std.mem.readIntLittle(u16, try ctx.memGet(pop.data, mem.offset, 2));
+        return try ctx.load(u16, pop.data, mem.offset);
     }
 
     pub fn @"0x30 i64.load8_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(i8, try ctx.memGet(pop.data, mem.offset, 1));
+        return try ctx.load(i8, pop.data, mem.offset);
     }
     pub fn @"0x31 i64.load8_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(u8, try ctx.memGet(pop.data, mem.offset, 1));
+        return try ctx.load(u8, pop.data, mem.offset);
     }
     pub fn @"0x32 i64.load16_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(i16, try ctx.memGet(pop.data, mem.offset, 2));
+        return try ctx.load(i16, pop.data, mem.offset);
     }
     pub fn @"0x33 i64.load16_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(u16, try ctx.memGet(pop.data, mem.offset, 2));
+        return try ctx.load(u16, pop.data, mem.offset);
     }
     pub fn @"0x34 i64.load32_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(i32, try ctx.memGet(pop.data, mem.offset, 4));
+        return try ctx.load(i32, pop.data, mem.offset);
     }
     pub fn @"0x35 i64.load32_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return std.mem.readIntLittle(u32, try ctx.memGet(pop.data, mem.offset, 4));
+        return try ctx.load(u32, pop.data, mem.offset);
     }
     pub fn @"0x36 i32.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 4);
-        std.mem.writeIntLittle(i32, bytes, pop._1.data);
+        return try ctx.store(i32, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x37 i64.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 8);
-        std.mem.writeIntLittle(i64, bytes, pop._1.data);
+        return try ctx.store(i64, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x38 f32.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, F32)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 4);
-        std.mem.writeIntLittle(f32, bytes, pop._1.data);
+        return try ctx.store(f32, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x39 f64.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, F64)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 8);
-        std.mem.writeIntLittle(f64, bytes, pop._1.data);
+        return try ctx.store(f64, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x3A i32.store8"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 1);
-        std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop._1.data));
+        return try ctx.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
     }
     pub fn @"0x3B i32.store16"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 2);
-        std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop._1.data));
+        return try ctx.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
     }
     pub fn @"0x3C i64.store8"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 1);
-        std.mem.writeIntLittle(i8, bytes, @truncate(i8, pop._1.data));
+        return try ctx.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
     }
     pub fn @"0x3D i64.store16"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 2);
-        std.mem.writeIntLittle(i16, bytes, @truncate(i16, pop._1.data));
+        return try ctx.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
     }
     pub fn @"0x3E i64.store32"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        const bytes = try ctx.memGet(pop._0.data, mem.offset, 4);
-        std.mem.writeIntLittle(i32, bytes, @truncate(i32, pop._1.data));
+        return try ctx.store(i32, pop._0.data, mem.offset, @truncate(i32, pop._1.data));
     }
     pub fn @"0x3F memory.size"(ctx: *Execution, arg: Void, pop: *Void) u32 {
         return @intCast(u32, ctx.instance.memory.len % 65536);

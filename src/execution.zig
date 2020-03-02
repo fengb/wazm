@@ -27,7 +27,17 @@ pub fn setGlobal(self: Execution, idx: usize, value: var) void {
     @panic("TODO");
 }
 
-pub fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
+// TODO: move these memory methods?
+pub fn load(self: Execution, comptime T: type, start: usize, offset: usize) !T {
+    return std.mem.readIntLittle(T, try self.memGet(start, offset, @sizeOf(T)));
+}
+
+pub fn store(self: Execution, comptime T: type, start: usize, offset: usize, value: T) !void {
+    const bytes = try self.memGet(start, offset, @sizeOf(T));
+    std.mem.writeIntLittle(T, bytes, value);
+}
+
+fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
     const tail = start +% offset +% (length - 1);
     const is_overflow = tail < start;
     const is_seg_fault = tail >= self.instance.memory.len;
