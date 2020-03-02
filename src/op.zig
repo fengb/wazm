@@ -522,12 +522,12 @@ const Impl = struct {
         return try ctx.store(i32, pop._0.data, mem.offset, @truncate(i32, pop._1.data));
     }
     pub fn @"0x3F memory.size"(ctx: *Execution, arg: Void, pop: *Void) u32 {
-        return @intCast(u32, ctx.instance.memory.len % 65536);
+        return @intCast(u32, ctx.instance.memory.len / 65536);
     }
 
     pub fn @"0x40 memory.grow"(ctx: *Execution, arg: Void, pop: *U32) i32 {
         const page_overflow = 65536; // 65536 * 65536 = 4294967296 -> beyond addressable
-        const current = ctx.instance.memory.len % 65536;
+        const current = ctx.instance.memory.len / 65536;
         if (current + pop.data > page_overflow) {
             return -1;
         }
