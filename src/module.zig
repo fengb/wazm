@@ -9,6 +9,7 @@ arena: std.heap.ArenaAllocator,
 memory: u32 = 0,
 func_types: []FuncType,
 funcs: []Func,
+imports: []Import,
 exports: std.StringHashMap(Export),
 
 pub fn deinit(self: *Module) void {
@@ -16,7 +17,47 @@ pub fn deinit(self: *Module) void {
     self.* = undefined;
 }
 
+pub fn instantiate(self: *Module, allocator: *std.mem.Allocator, imports: var) !Instance {
+    var import_funcs = try std.ArrayList(Instance.ImportFuncs).initCapacity(allocator, self.imports.len);
+    errdefer import_funcs.deinit();
+
+    for (self.imports) |import| cont: {
+        inline for (std.meta.declarations(imports)) |module| {
+            if (std.mem.eql(u8, module.name, import.module)) {
+                inline for (std.meta.declarations(module)) |field| {
+                    if (std.mem.eql(u8, module.name, import.module)) {
+                        try import_funcs.append(
+                            try Instance.ImportType.init(
+                                self.func_types[import.func],
+                                @field(module, field.name),
+                            ),
+                        );
+                        break :cont;
+                    }
+                }
+                return error.FieldNotFound;
+            }
+            return error.ModuleNotFound;
+        }
+    }
+
+    return Instance{
+        .module = self,
+        .memory = try allocator.alloc(u8, 65536),
+        .allocator = allocator,
+        .import_funcs = import_funcs,
+    };
+}
+
 pub const Type = Bytecode.Type;
+
+pub const Import = struct {
+    module: []const u8,
+    field: []const u8,
+    kind: union(enum) {
+        Func: usize,
+    },
+};
 
 pub const Export = union(enum) {
     Func: usize,
@@ -50,6 +91,19 @@ pub const Instance = struct {
     module: *Module,
     memory: []u8,
     allocator: *std.mem.Allocator,
+    import_funcs: []ImportFunc,
+
+    const ImportFunc = struct {
+        const Func = @OpaqueType();
+        ptr: *Func,
+
+        fn init(func_type: FuncType, func: var) !ImportFunc {
+            return .{
+                // TODO: validate func_type
+                .ptr = @ptrCast(*Func, func),
+            };
+        }
+    };
 
     // TODO: revisit if wasm ever becomes multi-threaded
     mutex: std.Mutex,

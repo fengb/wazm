@@ -464,6 +464,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
         .func_types = func_types.toOwnedSlice(),
         .funcs = funcs.toOwnedSlice(),
         .exports = exports,
+        .imports = &[0]Module.Import{},
         .arena = arena,
     };
 }

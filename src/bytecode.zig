@@ -522,6 +522,7 @@ pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !Module {
         },
         .funcs = &[0]Module.Func{},
         .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
+        .imports = &[0]Module.Import{},
         .arena = arena,
     };
 }
