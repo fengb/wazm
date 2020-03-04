@@ -549,12 +549,16 @@ test "empty module" {
 }
 
 test "module with only type" {
-    const raw_bytes = empty_raw_bytes ++ "\x01\x04\x01\x60\x00\x00";
+    const raw_bytes = empty_raw_bytes ++ // (module
+        "\x01\x04\x01\x60\x00\x00" ++ //      (type (func)))
+        "";
     var ios = std.io.SliceInStream.init(raw_bytes);
     var module = try Bytecode.load(std.testing.allocator, &ios.stream);
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 1), module.func_types.len);
+    std.testing.expectEqual(@as(usize, 0), module.func_types[0].params.len);
+    std.testing.expectEqual(@as(?Type.Value, null), module.func_types[0].result);
 }
 
 test "module with function body" {
@@ -575,4 +579,8 @@ test "module with function body" {
     var ios = std.io.SliceInStream.init(raw_bytes);
     var module = try Bytecode.load(std.testing.allocator, &ios.stream);
     defer module.deinit();
+
+    std.testing.expectEqual(@as(usize, 1), module.func_types.len);
+    std.testing.expectEqual(@as(usize, 0), module.func_types[0].params.len);
+    std.testing.expectEqual(Type.Value.I32, module.func_types[0].result.?);
 }
