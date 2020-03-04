@@ -341,7 +341,8 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
             0x3 => {
                 const count = try readVarint(u32, &payload.stream);
                 for (try result.allocInto(&result.function, count)) |*f| {
-                    f.* = try readVarintEnum(Index.FuncType, &payload.stream);
+                    const index = try readVarint(u32, &payload.stream);
+                    f.* = @intToEnum(Index.FuncType, index);
                 }
             },
             0x4 => {
@@ -408,20 +409,20 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                     }
                 }
             },
-            0x10 => {
+            0xA => {
                 const count = try readVarint(u32, &payload.stream);
                 for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, &payload.stream);
+                    if (body_size != payload.remaining) {
+                        // FIXME: this is probably the wrong size
+                        return error.BodySizeMismatch;
+                    }
                     const local_count = try readVarint(u32, &payload.stream);
                     for (try result.allocInto(&c.locals, local_count)) |*l| {
                         const var_count = try readVarint(u32, &payload.stream);
                         for (try result.allocInto(&l.@"type", local_count)) |*t| {
                             t.* = try readVarintEnum(Type.Value, &payload.stream);
                         }
-                    }
-                    // FIXME: this is probably the wrong size
-                    if (body_size != payload.remaining) {
-                        return error.ComeUpWithABetterName;
                     }
                     var code = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                     while (payload.stream.readByte()) |opcode| {
@@ -471,7 +472,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                     c.code = code.toOwnedSlice();
                 }
             },
-            0x11 => {
+            0xB => {
                 const count = try readVarint(u32, &payload.stream);
                 for (try result.allocInto(&result.data, count)) |*d| {
                     const index = try readVarint(u32, &payload.stream);
@@ -554,4 +555,24 @@ test "module with only type" {
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 1), module.func_types.len);
+}
+
+test "module with function body" {
+    // TODO: resurrect WAT so we can write readable tests
+
+    // (module
+    //   (type (;0;) (func (result i32)))
+    //   (func (;0;) (type 0) (result i32)
+    //     i32.const 420)
+    //   (export "foobar" (func 0)))
+    const raw_bytes = empty_raw_bytes ++ //          (module
+        "\x01\x05\x01\x60\x00\x01\x7f" ++ //           (type (;0;) (func (result i32)))
+        "\x03\x02\x01\x00" ++ //                       (func (;0;) (type 0)
+        "\x07\x05\x01\x01\x61\x00\x00" ++ //           (export "foobar" (func 0))
+        "\x0a\x07\x01\x05\x00\x41\xa4\x03\x0b" ++ //     i32.const 420
+        "";
+
+    var ios = std.io.SliceInStream.init(raw_bytes);
+    var module = try Bytecode.load(std.testing.allocator, &ios.stream);
+    defer module.deinit();
 }
