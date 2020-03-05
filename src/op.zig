@@ -294,8 +294,10 @@ pub const WasmTrap = error{
     IndirectCallTypeMismatch,
 };
 
+const hex = "0123456789ABCDEF";
+
 pub fn step(self: Op, ctx: *Execution, arg: Fixval, pop: [*]align(8) Fixval) WasmTrap!?Fixval {
-    var prefix_search = [4]u8{ '0', 'x', self.code / 16 + '0', self.code % 16 + '0' };
+    var prefix_search = [4]u8{ '0', 'x', hex[self.code / 16], hex[self.code % 16] };
 
     // TODO: test out function pointers for performance comparison
     // LLVM optimizes this inline for / mem.eql as a jump table
@@ -410,7 +412,8 @@ const Impl = struct {
         ctx.unwindBlock(arg.data[idx]);
     }
     pub fn @"0x0F return"(ctx: *Execution, arg: Void, pop: *Void) void {
-        _ = ctx.unwindCall();
+        // Forces unwindCall()
+        ctx.current_frame.instr = std.math.maxInt(u32);
     }
 
     pub fn @"0x10 call"(ctx: *Execution, arg: U32, pop: *Void) !void {

@@ -544,7 +544,13 @@ pub fn toModule(self: *Bytecode, allocator: *std.mem.Allocator) !Module {
             }
             break :blk result;
         },
-        .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
+        .exports = blk: {
+            var result = std.StringHashMap(Module.Export).init(&arena.allocator);
+            for (self.@"export") |exp| {
+                try result.putNoClobber(exp.field, .{ .Func = @enumToInt(exp.index.Function) });
+            }
+            break :blk result;
+        },
         .imports = &[0]Module.Import{},
         .arena = arena,
     };
@@ -552,7 +558,7 @@ pub fn toModule(self: *Bytecode, allocator: *std.mem.Allocator) !Module {
 
 pub fn load(allocator: *std.mem.Allocator, in_stream: var) !Module {
     var bytecode = try Bytecode.parse(allocator, in_stream);
-    defer bytecode.deinit();
+    //defer bytecode.deinit();
 
     return bytecode.toModule(allocator);
 }
@@ -606,6 +612,8 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 0), module.func_types[0].params.len);
     std.testing.expectEqual(Type.Value.I32, module.func_types[0].result.?);
 
+    std.testing.expectEqual(@as(usize, 1), module.exports.size);
+
     std.testing.expectEqual(@as(usize, 1), module.funcs.len);
     std.testing.expectEqual(@as(usize, 2), module.funcs[0].instrs.len);
     std.testing.expectEqualSlices(u8, "i32.const", module.funcs[0].instrs[0].op.name);
@@ -614,5 +622,6 @@ test "module with function body" {
     var instance = try module.instantiate(std.testing.allocator, struct {});
     defer instance.deinit();
 
-    _ = try instance.call("a", &[0]Module.Value{});
+    const result = try instance.call("a", &[0]Module.Value{});
+    std.testing.expectEqual(@as(isize, 420), result.?.I32);
 }

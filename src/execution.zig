@@ -62,7 +62,7 @@ const Frame = packed struct {
     }
 };
 
-pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usize, params: []Op.Fixval) !Op.Fixval {
+pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var self = Execution{
         .instance = instance,
         .stack = stack,
@@ -79,16 +79,7 @@ pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usi
 
     while (true) {
         const func = self.instance.module.funcs[self.current_frame.func];
-        if (self.current_frame.instr > func.instrs.len) {
-            const result = self.unwindCall();
-
-            if (self.current_frame.isTerminus()) {
-                std.debug.assert(self.stack_top == self.stack.len);
-                return result;
-            } else {
-                try self.push(Op.Fixval, result);
-            }
-        } else {
+        if (self.current_frame.instr < func.instrs.len) {
             const instr = func.instrs[self.current_frame.instr];
 
             //const pop_array: [*]align(8) Op.Fixval = self.stack.ptr + self.stack_top;
@@ -100,6 +91,17 @@ pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usi
                 try self.push(@TypeOf(res), res);
             }
             self.current_frame.instr += 1;
+        } else {
+            const result = self.unwindCall();
+
+            if (self.current_frame.isTerminus()) {
+                std.debug.assert(self.stack_top == self.stack.len);
+                return result;
+            } else {
+                if (result) |res| {
+                    self.push(Op.Fixval, res) catch unreachable;
+                }
+            }
         }
     }
 }
@@ -119,7 +121,7 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
     };
 }
 
-pub fn unwindCall(self: *Execution) Op.Fixval {
+pub fn unwindCall(self: *Execution) ?Op.Fixval {
     const func = self.instance.module.funcs[self.current_frame.func];
     const func_type = self.instance.module.func_types[func.func_type];
 
@@ -127,12 +129,14 @@ pub fn unwindCall(self: *Execution) Op.Fixval {
 
     self.stack_top = self.current_frame.top;
 
-    const prev_frame = self.pop(Frame);
+    self.current_frame = self.pop(Frame);
     self.dropN(func.locals.len + func_type.params.len);
 
-    self.push(Op.Fixval, result) catch unreachable;
-
-    return result;
+    if (func_type.result) |_| {
+        return result;
+    } else {
+        return null;
+    }
 }
 
 pub fn unwindBlock(self: *Execution, target_idx: u32) void {
@@ -187,11 +191,13 @@ fn dropN(self: *Execution, size: usize) void {
 }
 
 fn pop(self: *Execution, comptime T: type) T {
-    defer self.stack_top += @sizeOf(T);
+    std.debug.assert(@sizeOf(T) == 16);
+    defer self.stack_top += 1;
     return @bitCast(T, self.stack[self.stack_top]);
 }
 
 fn push(self: *Execution, comptime T: type, value: T) !void {
+    std.debug.assert(@sizeOf(T) == 16);
     self.stack_top = try std.math.sub(usize, self.stack_top, 1);
     self.stack[self.stack_top] = @bitCast(Op.Fixval, value);
 }

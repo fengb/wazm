@@ -120,7 +120,6 @@ pub const Instance = struct {
 
         switch (self.module.exports.getValue(name) orelse return error.ExportNotFound) {
             .Func => |func_id| {
-                std.debug.warn("{}\n", .{func_id});
                 const func = self.module.funcs[func_id];
                 const func_type = self.module.func_types[func.func_type];
                 if (params.len != func_type.params.len) {
@@ -141,12 +140,12 @@ pub const Instance = struct {
 
                 var stack: [1 << 10]Op.Fixval align(16) = undefined;
                 const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
-                if (func_type.result) |return_type| {
-                    return switch (return_type) {
-                        .I32 => Value{ .I32 = result.I32 },
-                        .I64 => Value{ .I64 = result.I64 },
-                        .F32 => Value{ .F32 = result.F32 },
-                        .F64 => Value{ .F64 = result.F64 },
+                if (result) |res| {
+                    return switch (func_type.result.?) {
+                        .I32 => Value{ .I32 = res.I32 },
+                        .I64 => Value{ .I64 = res.I64 },
+                        .F32 => Value{ .F32 = res.F32 },
+                        .F64 => Value{ .F64 = res.F64 },
                     };
                 } else {
                     return null;
