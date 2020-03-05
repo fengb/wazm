@@ -71,7 +71,8 @@ element: []struct {
 /// Code=10
 code: []struct {
     locals: []struct {
-        @"type": []Type.Value,
+        count: usize,
+        @"type": Type.Value,
     },
     code: []Module.Instr,
 },
@@ -419,10 +420,8 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Bytecode {
                     }
                     const local_count = try readVarint(u32, &payload.stream);
                     for (try result.allocInto(&c.locals, local_count)) |*l| {
-                        const var_count = try readVarint(u32, &payload.stream);
-                        for (try result.allocInto(&l.@"type", local_count)) |*t| {
-                            t.* = try readVarintEnum(Type.Value, &payload.stream);
-                        }
+                        l.count = try readVarint(u32, &payload.stream);
+                        l.@"type" = try readVarintEnum(Type.Value, &payload.stream);
                     }
                     var code = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                     while (payload.stream.readByte()) |opcode| {
@@ -505,14 +504,14 @@ fn clone(comptime T: type, allocator: *std.mem.Allocator, data: []T) ![]T {
     return result;
 }
 
-pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !Module {
+pub fn toModule(self: *Bytecode, allocator: *std.mem.Allocator) !Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
     return Module{
         .memory = 0,
         .func_types = blk: {
-            var result = try arena.allocator.alloc(Module.FuncType, self.@"type".len);
+            const result = try arena.allocator.alloc(Module.FuncType, self.@"type".len);
             for (self.@"type") |t, i| {
                 result[i] = .{
                     .params = try clone(Type.Value, &arena.allocator, t.param_types),
@@ -521,7 +520,30 @@ pub fn toModule(self: Bytecode, allocator: *std.mem.Allocator) !Module {
             }
             break :blk result;
         },
-        .funcs = &[0]Module.Func{},
+        .funcs = blk: {
+            const result = try arena.allocator.alloc(Module.Func, self.code.len);
+            for (result) |*func, i| {
+                func.name = null;
+                func.func_type = @enumToInt(self.function[i]);
+
+                var instrs = std.ArrayList(Module.Instr).init(&arena.allocator);
+                for (self.code[i].code) |instr| {
+                    try instrs.append(instr);
+                }
+                func.instrs = instrs.toOwnedSlice();
+
+                var locals = std.ArrayList(Type.Value).init(&arena.allocator);
+                for (self.code[i].locals) |local| {
+                    var c: usize = 0;
+                    while (c < local.count) : (c += 1) {
+                        try locals.append(local.@"type");
+                    }
+                }
+
+                func.locals = locals.toOwnedSlice();
+            }
+            break :blk result;
+        },
         .exports = std.StringHashMap(Module.Export).init(&arena.allocator),
         .imports = &[0]Module.Import{},
         .arena = arena,
@@ -568,11 +590,11 @@ test "module with function body" {
     //   (type (;0;) (func (result i32)))
     //   (func (;0;) (type 0) (result i32)
     //     i32.const 420)
-    //   (export "foobar" (func 0)))
+    //   (export "a" (func 0)))
     const raw_bytes = empty_raw_bytes ++ //          (module
         "\x01\x05\x01\x60\x00\x01\x7f" ++ //           (type (;0;) (func (result i32)))
         "\x03\x02\x01\x00" ++ //                       (func (;0;) (type 0)
-        "\x07\x05\x01\x01\x61\x00\x00" ++ //           (export "foobar" (func 0))
+        "\x07\x05\x01\x01\x61\x00\x00" ++ //           (export "a" (func 0))
         "\x0a\x07\x01\x05\x00\x41\xa4\x03\x0b" ++ //     i32.const 420
         "";
 
@@ -583,4 +605,14 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 1), module.func_types.len);
     std.testing.expectEqual(@as(usize, 0), module.func_types[0].params.len);
     std.testing.expectEqual(Type.Value.I32, module.func_types[0].result.?);
+
+    std.testing.expectEqual(@as(usize, 1), module.funcs.len);
+    std.testing.expectEqual(@as(usize, 2), module.funcs[0].instrs.len);
+    std.testing.expectEqualSlices(u8, "i32.const", module.funcs[0].instrs[0].op.name);
+    std.testing.expectEqualSlices(u8, "end", module.funcs[0].instrs[1].op.name);
+
+    var instance = try module.instantiate(std.testing.allocator, struct {});
+    defer instance.deinit();
+
+    _ = try instance.call("a", &[0]Module.Value{});
 }

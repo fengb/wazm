@@ -18,7 +18,7 @@ pub fn deinit(self: *Module) void {
 }
 
 pub fn instantiate(self: *Module, allocator: *std.mem.Allocator, imports: var) !Instance {
-    var import_funcs = try std.ArrayList(Instance.ImportFuncs).initCapacity(allocator, self.imports.len);
+    var import_funcs = try std.ArrayList(Instance.ImportFunc).initCapacity(allocator, self.imports.len);
     errdefer import_funcs.deinit();
 
     for (self.imports) |import| cont: {
@@ -43,9 +43,10 @@ pub fn instantiate(self: *Module, allocator: *std.mem.Allocator, imports: var) !
 
     return Instance{
         .module = self,
+        .mutex = std.Mutex.init(),
         .memory = try allocator.alloc(u8, 65536),
         .allocator = allocator,
-        .import_funcs = import_funcs,
+        .import_funcs = import_funcs.toSliceConst(),
     };
 }
 
@@ -91,7 +92,12 @@ pub const Instance = struct {
     module: *Module,
     memory: []u8,
     allocator: *std.mem.Allocator,
-    import_funcs: []ImportFunc,
+    import_funcs: []const ImportFunc,
+
+    fn deinit(self: *Instance) void {
+        self.allocator.free(self.memory);
+        self.* = undefined;
+    }
 
     const ImportFunc = struct {
         const Func = @OpaqueType();
@@ -108,12 +114,13 @@ pub const Instance = struct {
     // TODO: revisit if wasm ever becomes multi-threaded
     mutex: std.Mutex,
 
-    fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
+    pub fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
         const lock = self.mutex.acquire();
         defer lock.release();
 
         switch (self.module.exports.getValue(name) orelse return error.ExportNotFound) {
             .Func => |func_id| {
+                std.debug.warn("{}\n", .{func_id});
                 const func = self.module.funcs[func_id];
                 const func_type = self.module.func_types[func.func_type];
                 if (params.len != func_type.params.len) {
@@ -132,7 +139,7 @@ pub const Instance = struct {
                     };
                 }
 
-                var stack: [1 << 20]Op.Fixval align(8) = undefined;
+                var stack: [1 << 10]Op.Fixval align(16) = undefined;
                 const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
                 if (func_type.result) |return_type| {
                     return switch (return_type) {
