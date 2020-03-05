@@ -1,11 +1,11 @@
 const std = @import("std");
 const Op = @import("op.zig");
-const Module = @import("module.zig");
+const Instance = @import("instance.zig");
 const util = @import("util.zig");
 
 pub const Execution = @This();
 
-instance: *Module.Instance,
+instance: *Instance,
 stack: []align(8) Op.Fixval,
 stack_top: usize,
 
@@ -62,7 +62,7 @@ const Frame = packed struct {
     }
 };
 
-pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
+pub fn run(instance: *Instance, stack: []align(8) Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var self = Execution{
         .instance = instance,
         .stack = stack,
@@ -78,7 +78,7 @@ pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usi
     try self.initCall(func_id);
 
     while (true) {
-        const func = self.instance.module.funcs[self.current_frame.func];
+        const func = self.instance.funcs[self.current_frame.func];
         if (self.current_frame.instr < func.instrs.len) {
             const instr = func.instrs[self.current_frame.instr];
 
@@ -107,7 +107,7 @@ pub fn run(instance: *Module.Instance, stack: []align(8) Op.Fixval, func_id: usi
 }
 
 pub fn initCall(self: *Execution, func_id: usize) !void {
-    const func = self.instance.module.funcs[func_id];
+    const func = self.instance.funcs[func_id];
     // TODO: validate params on the callstack
     for (func.locals) |local| {
         try self.push(u128, 0);
@@ -122,17 +122,16 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
 }
 
 pub fn unwindCall(self: *Execution) ?Op.Fixval {
-    const func = self.instance.module.funcs[self.current_frame.func];
-    const func_type = self.instance.module.func_types[func.func_type];
+    const func = self.instance.funcs[self.current_frame.func];
 
     const result = self.pop(Op.Fixval);
 
     self.stack_top = self.current_frame.top;
 
     self.current_frame = self.pop(Frame);
-    self.dropN(func.locals.len + func_type.params.len);
+    self.dropN(func.locals.len + func.params.len);
 
-    if (func_type.result) |_| {
+    if (func.result) |_| {
         return result;
     } else {
         return null;
@@ -140,7 +139,7 @@ pub fn unwindCall(self: *Execution) ?Op.Fixval {
 }
 
 pub fn unwindBlock(self: *Execution, target_idx: u32) void {
-    const func = self.instance.module.funcs[self.current_frame.func];
+    const func = self.instance.funcs[self.current_frame.func];
 
     var remaining = target_idx;
     var stack_change: isize = 0;

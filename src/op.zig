@@ -1,5 +1,4 @@
 const std = @import("std");
-const Module = @import("module.zig");
 const Execution = @import("execution.zig");
 
 const Op = @This();
@@ -420,12 +419,11 @@ const Impl = struct {
         try ctx.initCall(arg.data);
     }
     pub fn @"0x11 call_indirect"(ctx: *Execution, arg: Arg.U32z, pop: *U32) !void {
-        const func_type = &ctx.instance.module.func_types[arg.data];
         const func_id = pop.data;
-        if (func_id >= ctx.instance.module.funcs.len) {
+        if (func_id >= ctx.instance.funcs.len) {
             return error.IndirectCalleeAbsent;
         }
-        const func = ctx.instance.module.funcs[func_id];
+        const func = ctx.instance.funcs[func_id];
         if (func.func_type != arg.data) {
             return error.IndirectCallTypeMismatch;
         }
