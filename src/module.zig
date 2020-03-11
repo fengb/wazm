@@ -90,20 +90,21 @@ custom: []struct {
     payload: []const u8,
 },
 
-fn init(arena: std.heap.ArenaAllocator) Module {
+pub fn init(arena: std.heap.ArenaAllocator) Module {
     var result: Module = undefined;
     result.arena = arena;
 
     inline for (std.meta.fields(Module)) |field| {
         if (comptime !std.mem.eql(u8, field.name, "arena")) {
-            @field(result, field.name) = switch (@typeInfo(field.field_type)) {
-                .Pointer => |ptr_info| &[0]ptr_info.child{},
-                .Optional => null,
-                else => @compileError("No idea how to initialize " ++ field.name ++ " " ++ @typeName(field.field_type)),
-            };
+            @field(result, field.name) = std.mem.zeroes(field.field_type);
         }
     }
     return result;
+}
+
+pub fn deinit(self: *Module) void {
+    self.arena.deinit();
+    self.* = undefined;
 }
 
 const Index = struct {
@@ -502,11 +503,6 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
     }
 
     return result;
-}
-
-pub fn deinit(self: *Module) void {
-    self.arena.deinit();
-    self.* = undefined;
 }
 
 pub const instantiate = Instance.init;
