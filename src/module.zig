@@ -177,8 +177,8 @@ fn readVarint(comptime T: type, in_stream: var) !T {
         if (byte & 0x80 == 0) {
             if (U == T) {
                 return unsigned_result;
-            } else if (byte & 0x40 != 0 and !@addWithOverflow(S, shift, 7, &shift)) {
-                return @bitCast(T, unsigned_result) | (@as(T, -1) << shift);
+            } else if (byte & 0x40 != 0 and !@addWithOverflow(S, shift, 6, &shift)) {
+                return @bitCast(T, unsigned_result) | @as(T, -1) << shift;
             } else {
                 return @bitCast(T, unsigned_result);
             }
@@ -197,7 +197,7 @@ test "readVarint" {
         var ios = std.io.fixedBufferStream("\xC0\xBB\x78");
         std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, ios.inStream()));
         ios.pos = 0;
-        //std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.inStream()));
+        std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.inStream()));
     }
     {
         var ios = std.io.fixedBufferStream("\x7F");
