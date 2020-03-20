@@ -44,7 +44,7 @@ fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) 
     if (is_overflow or is_seg_fault) {
         return error.OutOfBounds;
     }
-    return @ptrCast(*[length]u8, &self.instance.memory[start + offset]);
+    return self.instance.memory[start + offset ..][0..length];
 }
 
 const Frame = packed struct {
