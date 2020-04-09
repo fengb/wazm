@@ -74,7 +74,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: var) !Insta
         .mutex = std.Mutex.init(),
         .memory = try allocator.alloc(u8, 65536),
         .exports = exports,
-        .funcs = funcs.toOwnedSlice(),
+        .funcs = funcs.items,
         .allocator = allocator,
     };
 }

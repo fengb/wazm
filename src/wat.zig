@@ -154,7 +154,7 @@ const Sexpr = struct {
                         },
                     });
                 },
-                .CloseParen => return list.toOwnedSlice(),
+                .CloseParen => return list.items,
                 .Newline => {},
                 .OpenParenSemicolon => {
                     while (tokenizer.next()) |comment| {
@@ -454,16 +454,16 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                     }
                 }
 
-                try functions.append(@intToEnum(Module.Index.FuncType, @intCast(u32, types.len)));
+                try functions.append(@intToEnum(Module.Index.FuncType, @intCast(u32, types.items.len)));
 
                 try codes.append(.{
-                    .locals = locals.toOwnedSlice(),
-                    .code = code.toOwnedSlice(),
+                    .locals = locals.items,
+                    .code = code.items,
                 });
 
                 try types.append(.{
                     .form = .Func,
-                    .param_types = params.toOwnedSlice(),
+                    .param_types = params.items,
                     .return_type = result,
                 });
             },
@@ -472,18 +472,18 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
     }
 
     return Module{
-        .custom = customs.toOwnedSlice(),
-        .@"type" = types.toOwnedSlice(),
-        .import = imports.toOwnedSlice(),
-        .function = functions.toOwnedSlice(),
-        .table = tables.toOwnedSlice(),
-        .memory = memories.toOwnedSlice(),
-        .global = globals.toOwnedSlice(),
-        .@"export" = exports.toOwnedSlice(),
+        .custom = customs.items,
+        .@"type" = types.items,
+        .import = imports.items,
+        .function = functions.items,
+        .table = tables.items,
+        .memory = memories.items,
+        .global = globals.items,
+        .@"export" = exports.items,
         .start = start,
-        .element = elements.toOwnedSlice(),
-        .code = codes.toOwnedSlice(),
-        .data = data.toOwnedSlice(),
+        .element = elements.items,
+        .code = codes.items,
+        .data = data.items,
 
         .arena = arena,
     };

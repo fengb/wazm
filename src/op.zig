@@ -8,7 +8,7 @@ name: []const u8,
 can_error: bool,
 arg_kind: Arg.Kind,
 push: ?Stack.Change,
-pop: []Stack.Change,
+pop: []const Stack.Change,
 
 pub const sparse = blk: {
     @setEvalBranchQuota(10000);
