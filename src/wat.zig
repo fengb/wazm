@@ -18,32 +18,30 @@ const ParseContext = struct {
         self: ParseContext,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-    ) Errors!void {
+        out_stream: var,
+    ) !void {
         if (self.err) |err| {
             if (err.location >= self.string.len) {
-                try output(context, "ParseError @ EOF");
+                try out_stream.writeAll("ParseError @ EOF");
             } else {
-                try std.fmt.format(context, Errors, output, "ParseError @ {}", .{err.location});
+                try std.fmt.format(out_stream, "ParseError @ {}", .{err.location});
             }
             if (err.message) |msg| {
-                try output(context, ": '");
-                try output(context, msg);
-                try output(context, "'");
+                try out_stream.writeAll(": '");
+                try out_stream.writeAll(msg);
+                try out_stream.writeAll("'");
             }
 
-            try output(context, "\n# ");
+            try out_stream.writeAll("\n# ");
             if (err.location >= self.string.len) {
                 const start = std.math.min(self.string.len -% 20, 0);
-                try output(context, self.string[start..]);
-                try output(context, "$");
+                try out_stream.writeAll(self.string[start..]);
+                try out_stream.writeAll("$");
             } else {
-                try output(context, self.string[err.location..std.math.min(err.location + 20, self.string.len)]);
-                try output(context, "\n  ^");
+                try out_stream.writeAll(self.string[err.location..std.math.min(err.location + 20, self.string.len)]);
+                try out_stream.writeAll("\n  ^");
             }
-            try output(context, "\n");
+            try out_stream.writeAll("\n");
         }
     }
 
@@ -333,10 +331,18 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
     try ctx.validate(sexpr.root.len > 0, ctx.eof());
     try ctx.validate(std.mem.eql(u8, sexpr.root[0].data.keyword, "module"), sexpr.root[0].token.source);
 
-    var memory: usize = 0;
-    var func_types = std.ArrayList(Module.FuncType).init(&arena.allocator);
-    var funcs = std.ArrayList(Module.Func).init(&arena.allocator);
-    var exports = std.StringHashMap(Module.Export).init(&arena.allocator);
+    var customs = std.ArrayList(Module.sectionType(.Custom)).init(&arena.allocator);
+    var types = std.ArrayList(Module.sectionType(.Type)).init(&arena.allocator);
+    var imports = std.ArrayList(Module.sectionType(.Import)).init(&arena.allocator);
+    var functions = std.ArrayList(Module.sectionType(.Function)).init(&arena.allocator);
+    var tables = std.ArrayList(Module.sectionType(.Table)).init(&arena.allocator);
+    var memories = std.ArrayList(Module.sectionType(.Memory)).init(&arena.allocator);
+    var globals = std.ArrayList(Module.sectionType(.Global)).init(&arena.allocator);
+    var exports = std.ArrayList(Module.sectionType(.Export)).init(&arena.allocator);
+    var start: ?Module.sectionType(.Start) = null;
+    var elements = std.ArrayList(Module.sectionType(.Element)).init(&arena.allocator);
+    var codes = std.ArrayList(Module.sectionType(.Code)).init(&arena.allocator);
+    var data = std.ArrayList(Module.sectionType(.Data)).init(&arena.allocator);
 
     for (sexpr.root[1..]) |elem| {
         try ctx.validate(elem.data == .list, elem.token.source);
@@ -351,7 +357,12 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                 try ctx.validate(list.len == 2, elem.token.source);
                 try ctx.validate(list[1].data == .integer, list[1].token.source);
 
-                memory = list[1].data.integer;
+                try memories.append(.{
+                    .limits = .{
+                        .initial = @intCast(u32, list[1].data.integer),
+                        .maximum = if (list.len == 2) null else @intCast(u32, list[2].data.integer),
+                    },
+                });
             },
             swhash.case("func") => {
                 var params = std.ArrayList(Module.Type.Value).init(&arena.allocator);
@@ -380,12 +391,12 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                     }
                 }
 
-                var instrs = std.ArrayList(Module.Instr).init(&arena.allocator);
+                var code = std.ArrayList(Module.Instr).init(&arena.allocator);
                 while (pop(list, &i)) |val| {
                     try ctx.validate(val.data == .keyword, val.token.source);
 
                     if (Op.byName(val.data.keyword)) |*op| {
-                        try instrs.append(.{
+                        try code.append(.{
                             .op = op,
                             .arg = switch (op.arg_kind) {
                                 .Void => .{ .I64 = 0 },
@@ -443,16 +454,17 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                     }
                 }
 
-                try func_types.append(.{
-                    .params = params.toOwnedSlice(),
-                    .result = result,
+                try functions.append(@intToEnum(Module.Index.FuncType, @intCast(u32, types.len)));
+
+                try codes.append(.{
+                    .locals = locals.toOwnedSlice(),
+                    .code = code.toOwnedSlice(),
                 });
 
-                try funcs.append(.{
-                    .name = null,
-                    .func_type = func_types.len - 1,
-                    .locals = locals.toOwnedSlice(),
-                    .instrs = instrs.toOwnedSlice(),
+                try types.append(.{
+                    .form = .Func,
+                    .param_types = params.toOwnedSlice(),
+                    .return_type = result,
                 });
             },
             else => return ctx.fail(list[0].token.source),
@@ -460,11 +472,19 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
     }
 
     return Module{
-        .memory = @intCast(u32, memory),
-        .func_types = func_types.toOwnedSlice(),
-        .funcs = funcs.toOwnedSlice(),
-        .exports = exports,
-        .imports = &[0]Module.Import{},
+        .custom = customs.toOwnedSlice(),
+        .@"type" = types.toOwnedSlice(),
+        .import = imports.toOwnedSlice(),
+        .function = functions.toOwnedSlice(),
+        .table = tables.toOwnedSlice(),
+        .memory = memories.toOwnedSlice(),
+        .global = globals.toOwnedSlice(),
+        .@"export" = exports.toOwnedSlice(),
+        .start = start,
+        .element = elements.toOwnedSlice(),
+        .code = codes.toOwnedSlice(),
+        .data = data.toOwnedSlice(),
+
         .arena = arena,
     };
 }
@@ -474,15 +494,16 @@ test "parse" {
         var module = try parse(std.testing.allocator, "(module)");
         defer module.deinit();
 
-        std.testing.expectEqual(@as(u32, 0), module.memory);
-        std.testing.expectEqual(@as(usize, 0), module.funcs.len);
-        std.testing.expectEqual(@as(usize, 0), module.exports.count());
+        std.testing.expectEqual(@as(usize, 0), module.memory.len);
+        std.testing.expectEqual(@as(usize, 0), module.function.len);
+        std.testing.expectEqual(@as(usize, 0), module.@"export".len);
     }
     {
         var module = try parse(std.testing.allocator, "(module (memory 42))");
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 42), module.memory);
+        std.testing.expectEqual(@as(usize, 1), module.memory.len);
+        std.testing.expectEqual(@as(u32, 42), module.memory[0].limits.initial);
     }
     {
         var module = try parse(std.testing.allocator,
@@ -494,20 +515,19 @@ test "parse" {
         );
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.funcs.len);
+        std.testing.expectEqual(@as(usize, 1), module.function.len);
 
-        const func_type = module.func_types[0];
-        std.testing.expectEqual(@as(usize, 2), func_type.params.len);
-        std.testing.expectEqual(Module.Type.Value.I32, func_type.params[0]);
-        std.testing.expectEqual(Module.Type.Value.F32, func_type.params[1]);
-        std.testing.expectEqual(Module.Type.Value.I64, func_type.result.?);
+        const func_type = module.@"type"[0];
+        std.testing.expectEqual(@as(usize, 2), func_type.param_types.len);
+        std.testing.expectEqual(Module.Type.Value.I32, func_type.param_types[0]);
+        std.testing.expectEqual(Module.Type.Value.F32, func_type.param_types[1]);
+        std.testing.expectEqual(Module.Type.Value.I64, func_type.return_type.?);
 
-        const func = module.funcs[0];
-        std.testing.expectEqual(@as(?[]const u8, null), func.name);
+        const code = module.code[0];
 
-        std.testing.expectEqual(@as(usize, 1), func.locals.len);
-        std.testing.expectEqual(Module.Type.Value.F64, func.locals[0]);
+        std.testing.expectEqual(@as(usize, 1), code.locals.len);
+        std.testing.expectEqual(Module.Type.Value.F64, code.locals[0]);
 
-        std.testing.expectEqual(@as(usize, 3), func.instrs.len);
+        std.testing.expectEqual(@as(usize, 3), code.code.len);
     }
 }

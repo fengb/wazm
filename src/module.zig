@@ -104,12 +104,33 @@ pub fn deinit(self: *Module) void {
     self.* = undefined;
 }
 
-const Index = struct {
-    const FuncType = enum(u32) { _ };
-    const Table = enum(u32) { _ };
-    const Function = enum(u32) { _ };
-    const Memory = enum(u32) { _ };
-    const Global = enum(u32) { _ };
+pub fn sectionType(comptime section: Section) type {
+    const fields = std.meta.fields(Module);
+    const num = @enumToInt(section) + 1; // 0 == allocator, 1 == custom, etc.
+    return std.meta.Child(fields[num].field_type);
+}
+
+const Section = enum {
+    Custom = 0,
+    Type = 1,
+    Import = 2,
+    Function = 3,
+    Table = 4,
+    Memory = 5,
+    Global = 6,
+    Export = 7,
+    Start = 8,
+    Element = 9,
+    Code = 10,
+    Data = 11,
+};
+
+pub const Index = struct {
+    pub const FuncType = enum(u32) { _ };
+    pub const Table = enum(u32) { _ };
+    pub const Function = enum(u32) { _ };
+    pub const Memory = enum(u32) { _ };
+    pub const Global = enum(u32) { _ };
 };
 
 pub const Type = struct {
