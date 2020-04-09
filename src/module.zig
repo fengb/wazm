@@ -8,6 +8,12 @@ const Module = @This();
 
 arena: std.heap.ArenaAllocator,
 
+/// Code=0
+custom: []struct {
+    name: []const u8,
+    payload: []const u8,
+},
+
 /// Code=1
 @"type": []struct {
     form: Type.Form, // TODO: why is this called form?
@@ -70,10 +76,7 @@ element: []struct {
 
 /// Code=10
 code: []struct {
-    locals: []struct {
-        count: usize,
-        @"type": Type.Value,
-    },
+    locals: []Type.Value,
     code: []Module.Instr,
 },
 
@@ -82,12 +85,6 @@ data: []struct {
     index: Index.Memory,
     offset: InitExpr,
     data: []const u8,
-},
-
-/// Code=0
-custom: []struct {
-    name: []const u8,
-    payload: []const u8,
 },
 
 pub fn init(arena: std.heap.ArenaAllocator) Module {
@@ -427,11 +424,21 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                         // FIXME: this is probably the wrong size
                         return error.BodySizeMismatch;
                     }
-                    const local_count = try readVarint(u32, payload.inStream());
-                    for (try result.allocInto(&c.locals, local_count)) |*l| {
-                        l.count = try readVarint(u32, payload.inStream());
-                        l.@"type" = try readVarintEnum(Type.Value, payload.inStream());
-                    }
+
+                    c.locals = blk: {
+                        // TODO: double pass here to preallocate the exact array size
+                        var list = std.ArrayList(Type.Value).init(&result.arena.allocator);
+                        var local_count = try readVarint(u32, payload.inStream());
+                        while (local_count > 0) : (local_count -= 1) {
+                            var current_count = try readVarint(u32, payload.inStream());
+                            const typ = try readVarintEnum(Type.Value, payload.inStream());
+                            while (current_count > 0) : (current_count -= 1) {
+                                try list.append(typ);
+                            }
+                        }
+                        break :blk list.toOwnedSlice();
+                    };
+
                     var code = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                     while (payload.inStream().readByte()) |opcode| {
                         if (Op.all[opcode]) |*op| {
