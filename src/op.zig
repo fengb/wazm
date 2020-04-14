@@ -87,7 +87,7 @@ pub fn byName(needle: []const u8) ?Op {
 
 /// Generic memory chunk capable of representing any wasm type.
 /// Useful for storing instruction args, stack variables, and globals.
-pub const Fixval = packed union {
+pub const Fixval = extern union {
     I32: i32,
     U32: u32,
     I64: i64,
@@ -103,40 +103,48 @@ pub const Fixval = packed union {
         return @bitCast(Fixval, value);
     }
 
-    pub const Void = packed struct {
+    pub const Void = extern struct {
         _pad: u128,
     };
 
-    const I32 = packed union {
+    const I32 = extern union {
         data: i32,
         _pad: u128,
     };
 
-    const U32 = packed union {
+    const U32 = extern union {
         data: u32,
         _pad: u128,
     };
 
-    const I64 = packed union {
+    const I64 = extern union {
         data: i64,
         _pad: u128,
     };
 
-    const U64 = packed union {
+    const U64 = extern union {
         data: u64,
         _pad: u128,
     };
 
-    const F32 = packed union {
+    const F32 = extern union {
         data: f32,
         _pad: u128,
     };
 
-    const F64 = packed union {
+    const F64 = extern union {
         data: f64,
         _pad: u128,
     };
 };
+
+test "Fixval subtype sizes" {
+    inline for (std.meta.declarations(Fixval)) |decl| {
+        if (decl.data == .Type) {
+            std.testing.expectEqual(@sizeOf(Fixval), @sizeOf(decl.data.Type));
+        }
+    }
+}
 
 pub const Arg = struct {
     pub const Kind = enum {
@@ -178,7 +186,7 @@ pub const Arg = struct {
         F64 = 0x7C,
     };
 
-    pub const U32z = packed struct {
+    pub const U32z = extern struct {
         data: u32,
         reserved: u8,
         // Zig bug -- won't pack correctly without manually splitting this
@@ -187,12 +195,13 @@ pub const Arg = struct {
         _pad2: u64 = 0,
     };
 
-    pub const Mem = packed struct {
+    pub const Mem = extern struct {
         offset: u32,
         align_: u32,
         _pad: u64 = 0,
     };
 
+    // TODO: make this extern
     pub const Array = packed struct {
         data: [*]u32,
         len: usize,
@@ -295,7 +304,7 @@ pub const WasmTrap = error{
 
 const hex = "0123456789ABCDEF";
 
-pub fn step(self: Op, ctx: *Execution, arg: Fixval, pop: [*]align(8) Fixval) WasmTrap!?Fixval {
+pub fn step(self: Op, ctx: *Execution, arg: Fixval, pop: [*]Fixval) WasmTrap!?Fixval {
     var prefix_search = [4]u8{ '0', 'x', hex[self.code / 16], hex[self.code % 16] };
 
     // TODO: test out function pointers for performance comparison
@@ -352,7 +361,7 @@ const Impl = struct {
 
     // TODO: replace once Zig can define tuple types
     fn Pair(comptime T0: type, comptime T1: type) type {
-        return struct {
+        return extern struct {
             _0: T0,
             _1: T1,
         };
@@ -360,7 +369,7 @@ const Impl = struct {
 
     // TODO: replace once Zig can define tuple types
     fn Triple(comptime T0: type, comptime T1: type, comptime T2: type) type {
-        return struct {
+        return extern struct {
             _0: T0,
             _1: T1,
             _2: T2,

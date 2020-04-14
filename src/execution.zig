@@ -6,7 +6,7 @@ const util = @import("util.zig");
 pub const Execution = @This();
 
 instance: *Instance,
-stack: []align(8) Op.Fixval,
+stack: []Op.Fixval,
 stack_top: usize,
 
 current_frame: Frame,
@@ -62,7 +62,7 @@ const Frame = packed struct {
     }
 };
 
-pub fn run(instance: *Instance, stack: []align(8) Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
+pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var self = Execution{
         .instance = instance,
         .stack = stack,
@@ -82,8 +82,7 @@ pub fn run(instance: *Instance, stack: []align(8) Op.Fixval, func_id: usize, par
         if (self.current_frame.instr < func.instrs.len) {
             const instr = func.instrs[self.current_frame.instr];
 
-            //const pop_array: [*]align(8) Op.Fixval = self.stack.ptr + self.stack_top;
-            const pop_array = @intToPtr([*]align(8) Op.Fixval, 8);
+            const pop_array: [*]Op.Fixval = self.stack.ptr + self.stack_top;
             self.stack_top += instr.op.pop.len;
 
             const result = try instr.op.step(&self, instr.arg, pop_array);

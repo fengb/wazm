@@ -110,7 +110,7 @@ pub fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
                 };
             }
 
-            var stack: [1 << 10]Op.Fixval align(16) = undefined;
+            var stack: [1 << 10]Op.Fixval = undefined;
             const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
             if (result) |res| {
                 return switch (func_type.return_type.?) {
