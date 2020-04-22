@@ -110,6 +110,13 @@ pub fn sectionType(comptime section: Section) type {
     return std.meta.Child(fields[num].field_type);
 }
 
+test "sectionType" {
+    const module: Module = undefined;
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.custom)), sectionType(.Custom));
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.memory)), sectionType(.Memory));
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.data)), sectionType(.Data));
+}
+
 const Section = enum {
     Custom = 0,
     Type = 1,
