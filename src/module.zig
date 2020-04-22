@@ -335,8 +335,8 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
         const payload_len = try readVarint(u32, in_stream);
         var payload = clampedInStream(in_stream, payload_len);
 
-        switch (id) {
-            0x1 => {
+        switch (try std.meta.intToEnum(Section, id)) {
+            .Type => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.@"type", count)) |*t| {
                     t.form = try readVarintEnum(Type.Form, payload.inStream());
@@ -350,7 +350,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.inStream());
                 }
             },
-            0x2 => {
+            .Import => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.import, count)) |*i| {
                     const module_len = try readVarint(u32, payload.inStream());
@@ -366,14 +366,14 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     i.kind = try readVarintEnum(ExternalKind, payload.inStream());
                 }
             },
-            0x3 => {
+            .Function => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.function, count)) |*f| {
                     const index = try readVarint(u32, payload.inStream());
                     f.* = @intToEnum(Index.FuncType, index);
                 }
             },
-            0x4 => {
+            .Table => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.table, count)) |*t| {
                     t.element_type = try readVarintEnum(Type.Elem, payload.inStream());
@@ -383,7 +383,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.inStream());
                 }
             },
-            0x5 => {
+            .Memory => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.memory, count)) |*m| {
                     const flags = try readVarint(u1, payload.inStream());
@@ -391,7 +391,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.inStream());
                 }
             },
-            0x6 => {
+            .Global => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.global, count)) |*g| {
                     g.@"type".content_type = try readVarintEnum(Type.Value, payload.inStream());
@@ -399,7 +399,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     g.init = .{}; // FIXME
                 }
             },
-            0x7 => {
+            .Export => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.@"export", count)) |*e| {
                     const field_len = try readVarint(u32, payload.inStream());
@@ -417,13 +417,13 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     };
                 }
             },
-            0x8 => {
+            .Start => {
                 const index = try readVarint(u32, payload.inStream());
                 result.start = .{
                     .index = @intToEnum(Index.Function, index),
                 };
             },
-            0x9 => {
+            .Element => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.element, count)) |*e| {
                     const index = try readVarint(u32, payload.inStream());
@@ -437,7 +437,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     }
                 }
             },
-            0xA => {
+            .Code => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, payload.inStream());
@@ -511,7 +511,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     };
                 }
             },
-            0xB => {
+            .Data => {
                 const count = try readVarint(u32, payload.inStream());
                 for (try result.allocInto(&result.data, count)) |*d| {
                     const index = try readVarint(u32, payload.inStream());
@@ -524,8 +524,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
                     d.data = data;
                 }
             },
-            0x0 => @panic("TODO"),
-            else => return error.InvalidFormat,
+            .Custom => @panic("TODO"),
         }
         try expectEos(payload.inStream());
     }
