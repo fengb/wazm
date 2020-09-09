@@ -1,16 +1,21 @@
 const std = @import("std");
 
 const Wat = @import("../wat.zig");
+const Instance = @import("../instance.zig");
 
 test "stuff" {
     var module = try Wat.parse(std.testing.allocator,
         \\(module
-        \\  (func (param i32) (param i32) (result i32)
-        \\    local.get 0
-        \\    local.get 1
+        \\  (func (result i32)
+        \\    i32.const 1
+        \\    i32.const 42
         \\    i32.add))
     );
     defer module.deinit();
 
-    std.debug.print("{}\n", .{module.code[0].code[0]});
+    var instance = try module.instantiate(std.testing.allocator, struct {});
+    defer instance.deinit();
+
+    const result = try instance.callForTest(0, &[0]Instance.Value{});
+    std.testing.expectEqual(@as(isize, 43), result.?.I32);
 }

@@ -89,44 +89,49 @@ pub fn deinit(self: *Instance) void {
     self.* = undefined;
 }
 
-pub fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
+pub fn call(self: *Instance, name: []const u8, params: []const Value) !?Value {
     const lock = self.mutex.acquire();
     defer lock.release();
 
     switch (self.exports.get(name) orelse return error.ExportNotFound) {
         .Func => |func_id| {
-            const func = self.module.function[func_id];
-            const func_type = self.module.@"type"[@enumToInt(func)];
-            if (params.len != func_type.param_types.len) {
-                return error.TypeSignatureMismatch;
-            }
-
-            var converted_params: [20]Op.Fixval = undefined;
-            for (params) |param, i| {
-                if (param != func_type.param_types[i]) return error.TypeSignatureMismatch;
-
-                converted_params[i] = switch (param) {
-                    .I32 => |data| .{ .I32 = data },
-                    .I64 => |data| .{ .I64 = data },
-                    .F32 => |data| .{ .F32 = data },
-                    .F64 => |data| .{ .F64 = data },
-                };
-            }
-
-            var stack: [1 << 10]Op.Fixval = undefined;
-            const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
-            if (result) |res| {
-                return switch (func_type.return_type.?) {
-                    .I32 => Value{ .I32 = res.I32 },
-                    .I64 => Value{ .I64 = res.I64 },
-                    .F32 => Value{ .F32 = res.F32 },
-                    .F64 => Value{ .F64 = res.F64 },
-                };
-            } else {
-                return null;
-            }
+            return self.callForTest(func_id, params);
         },
         else => return error.ExportNotAFunction,
+    }
+}
+
+// TODO: delete me
+pub fn callForTest(self: *Instance, func_id: usize, params: []const Value) !?Value {
+    const func = self.module.function[func_id];
+    const func_type = self.module.@"type"[@enumToInt(func)];
+    if (params.len != func_type.param_types.len) {
+        return error.TypeSignatureMismatch;
+    }
+
+    var converted_params: [20]Op.Fixval = undefined;
+    for (params) |param, i| {
+        if (param != func_type.param_types[i]) return error.TypeSignatureMismatch;
+
+        converted_params[i] = switch (param) {
+            .I32 => |data| .{ .I32 = data },
+            .I64 => |data| .{ .I64 = data },
+            .F32 => |data| .{ .F32 = data },
+            .F64 => |data| .{ .F64 = data },
+        };
+    }
+
+    var stack: [1 << 10]Op.Fixval = undefined;
+    const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
+    if (result) |res| {
+        return switch (func_type.return_type.?) {
+            .I32 => Value{ .I32 = res.I32 },
+            .I64 => Value{ .I64 = res.I64 },
+            .F32 => Value{ .F32 = res.F32 },
+            .F64 => Value{ .F64 = res.F64 },
+        };
+    } else {
+        return null;
     }
 }
 
