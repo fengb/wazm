@@ -15,7 +15,7 @@ pub fn getLocal(self: Execution, idx: usize) Op.Fixval {
     @panic("TODO");
 }
 
-pub fn setLocal(self: Execution, idx: usize, value: var) void {
+pub fn setLocal(self: Execution, idx: usize, value: anytype) void {
     @panic("TODO");
 }
 
@@ -23,7 +23,7 @@ pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
     @panic("TODO");
 }
 
-pub fn setGlobal(self: Execution, idx: usize, value: var) void {
+pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
     @panic("TODO");
 }
 

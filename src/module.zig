@@ -184,7 +184,7 @@ pub const Instr = struct {
 
 const InitExpr = struct {};
 
-fn readVarint(comptime T: type, in_stream: var) !T {
+fn readVarint(comptime T: type, in_stream: anytype) !T {
     const U = @TypeOf(std.math.absCast(@as(T, 0)));
     const S = std.math.Log2Int(T);
 
@@ -240,12 +240,12 @@ test "readVarint" {
     }
 }
 
-fn readVarintEnum(comptime E: type, in_stream: var) !E {
+fn readVarintEnum(comptime E: type, in_stream: anytype) !E {
     const raw = try readVarint(std.meta.TagType(E), in_stream);
     return try std.meta.intToEnum(E, raw);
 }
 
-fn expectEos(in_stream: var) !void {
+fn expectEos(in_stream: anytype) !void {
     var tmp: [1]u8 = undefined;
     const len = try in_stream.read(&tmp);
     if (len != 0) {
@@ -277,7 +277,7 @@ pub fn ClampedInStream(comptime InStreamType: type) type {
     };
 }
 
-pub fn clampedInStream(underlying_stream: var, size: usize) ClampedInStream(@TypeOf(underlying_stream)) {
+pub fn clampedInStream(underlying_stream: anytype, size: usize) ClampedInStream(@TypeOf(underlying_stream)) {
     return .{
         .underlying_stream = underlying_stream,
 
@@ -312,7 +312,7 @@ fn ErrorOf(comptime Func: type) type {
 // --- After ---
 // const count = try readVarint(u32, payload.inStream());
 // for (self.allocInto(&result.field, count)) |*item| {
-fn allocInto(self: *Module, ptr_to_slice: var, count: usize) !std.meta.Child(@TypeOf(ptr_to_slice)) {
+fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !std.meta.Child(@TypeOf(ptr_to_slice)) {
     const Slice = std.meta.Child(@TypeOf(ptr_to_slice));
     std.debug.assert(@typeInfo(Slice).Pointer.size == .Slice);
 
@@ -320,7 +320,7 @@ fn allocInto(self: *Module, ptr_to_slice: var, count: usize) !std.meta.Child(@Ty
     return ptr_to_slice.*;
 }
 
-pub fn parse(allocator: *std.mem.Allocator, in_stream: var) !Module {
+pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
     const signature = try in_stream.readIntLittle(u32);
     if (signature != magic_number) {
         return error.InvalidFormat;

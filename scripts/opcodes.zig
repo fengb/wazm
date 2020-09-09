@@ -6,7 +6,7 @@ pub fn main() !void {
     try outputHtml(stdout.outStream());
 }
 
-fn outputConsole(outstream: var) !void {
+fn outputConsole(outstream: anytype) !void {
     for (self.Op.all) |op, i| {
         var buf = [_]u8{' '} ** 13;
         if (op) |o| {
@@ -20,7 +20,7 @@ fn outputConsole(outstream: var) !void {
     }
 }
 
-fn outputHtml(outstream: var) !void {
+fn outputHtml(outstream: anytype) !void {
     try outstream.print("<html>\n<body>\n<table>\n", .{});
 
     try outstream.print("<tr>\n<th></th>\n", .{});

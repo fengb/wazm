@@ -10,7 +10,7 @@ arg_kind: Arg.Kind,
 push: ?Stack.Change,
 pop: []const Stack.Change,
 
-pub const sparse = blk: {
+pub const sparse = sparse: {
     @setEvalBranchQuota(10000);
     const decls = publicFunctions(Impl);
     var result: [decls.len]Op = undefined;
@@ -30,7 +30,7 @@ pub const sparse = blk: {
             .can_error = switch (@typeInfo(return_type)) {
                 .ErrorUnion => |eu_info| blk: {
                     for (std.meta.fields(eu_info.error_set)) |err| {
-                        if (!errContains(WasmTrap, err.value)) {
+                        if (!errContains(WasmTrap, err.name)) {
                             @compileError("Unhandleable error: " ++ err.name);
                         }
                     }
@@ -60,7 +60,7 @@ pub const sparse = blk: {
         };
     }
 
-    break :blk result;
+    break :sparse result;
 };
 
 pub const all = blk: {
@@ -96,7 +96,7 @@ pub const Fixval = extern union {
     F64: f64,
     V128: i128, // TODO: make this a real vector
 
-    pub fn init(value: var) Fixval {
+    pub fn init(value: anytype) Fixval {
         const T = @TypeOf(value);
         if (@bitSizeOf(T) != 128) @compileError("Cannot convert to arg -- not 128 bits: " ++ @typeName(T));
 
@@ -242,17 +242,14 @@ pub const Stack = struct {
     };
 };
 
-fn errContains(comptime err_set: type, val: comptime_int) bool {
+fn errContains(comptime err_set: type, comptime name: []const u8) bool {
     std.debug.assert(@typeInfo(err_set) == .ErrorSet);
-    const lookup = comptime blk: {
-        const error_count = 1 << @bitSizeOf(anyerror);
-        var result = [_]bool{false} ** error_count;
-        for (std.meta.fields(err_set)) |err| {
-            result[err.value] = true;
+    for (std.meta.fields(err_set)) |err| {
+        if (std.mem.eql(u8, err.name, name)) {
+            return true;
         }
-        break :blk result;
-    };
-    return lookup[val];
+    }
+    return false;
 }
 
 fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {

@@ -18,7 +18,7 @@ const ParseContext = struct {
         self: ParseContext,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         if (self.err) |err| {
             if (err.location >= self.string.len) {

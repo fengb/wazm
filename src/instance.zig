@@ -16,6 +16,9 @@ mutex: std.Mutex,
 
 pub const Export = union(enum) {
     Func: usize,
+    Table: usize,
+    Memory: usize,
+    Global: usize,
 };
 
 pub const Func = struct {
@@ -26,7 +29,7 @@ pub const Func = struct {
     instrs: []Module.Instr,
 };
 
-pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: var) !Instance {
+pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !Instance {
     //    var import_funcs = try std.ArrayList(Instance.ImportFunc).initCapacity(allocator, module.imports.len);
     //    errdefer import_funcs.deinit();
     //    for (module.imports) |import| cont: {
@@ -71,7 +74,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: var) !Insta
 
     return Instance{
         .module = module,
-        .mutex = std.Mutex.init(),
+        .mutex = std.Mutex{},
         .memory = try allocator.alloc(u8, 65536),
         .exports = exports,
         .funcs = funcs.items,
@@ -90,7 +93,7 @@ pub fn call(self: *Instance, name: []const u8, params: []Value) !?Value {
     const lock = self.mutex.acquire();
     defer lock.release();
 
-    switch (self.exports.getValue(name) orelse return error.ExportNotFound) {
+    switch (self.exports.get(name) orelse return error.ExportNotFound) {
         .Func => |func_id| {
             const func = self.module.function[func_id];
             const func_type = self.module.@"type"[@enumToInt(func)];
