@@ -178,7 +178,7 @@ const ResizableLimits = struct {
 };
 
 pub const Instr = struct {
-    op: *const Op,
+    op: Op,
     arg: Op.Fixval,
 };
 
@@ -475,7 +475,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 else => return err,
                             };
 
-                            if (Op.all[opcode]) |*op| {
+                            if (Op.all[opcode]) |op| {
                                 try list.append(.{
                                     .op = op,
                                     .arg = switch (op.arg_kind) {

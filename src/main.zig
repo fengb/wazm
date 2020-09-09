@@ -8,4 +8,5 @@ test "" {
     _ = Module;
     _ = Op;
     _ = Wat;
+    _ = @import("func/basic.zig");
 }

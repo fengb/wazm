@@ -409,7 +409,7 @@ pub fn parse(allocator: *std.mem.Allocator, string: []const u8) !Module {
                 while (next(list, &i)) |val| {
                     try ctx.validate(val.data == .keyword, val.token.source);
 
-                    if (Op.byName(val.data.keyword)) |*op| {
+                    if (Op.byName(val.data.keyword)) |op| {
                         try code.append(.{
                             .op = op,
                             .arg = blk: {
