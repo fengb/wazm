@@ -37,7 +37,7 @@ fn outputHtml(outstream: anytype) !void {
         if (op) |o| {
             try outstream.print("<strong>{}</strong><br />\n", .{o.name});
             try outstream.print("(", .{});
-            if (o.pop.len > 1) {
+            if (o.pop.len > 0) {
                 for (o.pop) |change| {
                     try outstream.print("{} ", .{@tagName(change)});
                 }
