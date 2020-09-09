@@ -184,19 +184,19 @@ pub const Instr = struct {
 
 const InitExpr = struct {};
 
-fn readVarint(comptime T: type, in_stream: anytype) !T {
+fn readVarint(comptime T: type, reader: anytype) !T {
     const U = @TypeOf(std.math.absCast(@as(T, 0)));
     const S = std.math.Log2Int(T);
 
     if (std.meta.bitCount(T) < 8) {
-        const byte = try in_stream.readByte();
+        const byte = try reader.readByte();
         return @bitCast(T, try std.math.cast(U, byte));
     }
 
     var unsigned_result: U = 0;
     var shift: S = 0;
     while (true) : (shift = try std.math.add(S, shift, 7)) {
-        const byte = try in_stream.readByte();
+        const byte = try reader.readByte();
         unsigned_result += try std.math.shlExact(U, byte & 0x7F, shift);
 
         if (byte & 0x80 == 0) {
@@ -214,58 +214,58 @@ fn readVarint(comptime T: type, in_stream: anytype) !T {
 test "readVarint" {
     {
         var ios = std.io.fixedBufferStream("\xE5\x8E\x26");
-        std.testing.expectEqual(@as(u32, 624485), try readVarint(u32, ios.inStream()));
+        std.testing.expectEqual(@as(u32, 624485), try readVarint(u32, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(u21, 624485), try readVarint(u21, ios.inStream()));
+        std.testing.expectEqual(@as(u21, 624485), try readVarint(u21, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\xC0\xBB\x78");
-        std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, ios.inStream()));
+        std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.inStream()));
+        std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\x7F");
-        std.testing.expectEqual(@as(i7, -1), try readVarint(i7, ios.inStream()));
+        std.testing.expectEqual(@as(i7, -1), try readVarint(i7, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i21, -1), try readVarint(i21, ios.inStream()));
+        std.testing.expectEqual(@as(i21, -1), try readVarint(i21, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i32, -1), try readVarint(i32, ios.inStream()));
+        std.testing.expectEqual(@as(i32, -1), try readVarint(i32, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\xa4\x03");
-        std.testing.expectEqual(@as(i21, 420), try readVarint(i21, ios.inStream()));
+        std.testing.expectEqual(@as(i21, 420), try readVarint(i21, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i32, 420), try readVarint(i32, ios.inStream()));
+        std.testing.expectEqual(@as(i32, 420), try readVarint(i32, ios.reader()));
     }
 }
 
-fn readVarintEnum(comptime E: type, in_stream: anytype) !E {
-    const raw = try readVarint(std.meta.TagType(E), in_stream);
+fn readVarintEnum(comptime E: type, reader: anytype) !E {
+    const raw = try readVarint(std.meta.TagType(E), reader);
     return try std.meta.intToEnum(E, raw);
 }
 
-fn expectEos(in_stream: anytype) !void {
+fn expectEos(reader: anytype) !void {
     var tmp: [1]u8 = undefined;
-    const len = try in_stream.read(&tmp);
+    const len = try reader.read(&tmp);
     if (len != 0) {
         return error.NotEndOfStream;
     }
 }
 
 /// A stream that can only read a maximum number of bytes.
-pub fn ClampedInStream(comptime InStreamType: type) type {
+pub fn ClampedReader(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
-        pub const Error = InStreamType.Error;
-        pub const InStream = std.io.InStream(*Self, Error, read);
+        pub const Error = ReaderType.Error;
+        pub const Reader = std.io.Reader(*Self, Error, read);
 
-        underlying_stream: InStreamType,
+        underlying_stream: ReaderType,
 
         size: usize,
         remaining: usize,
 
-        pub fn inStream(self: *Self) InStream {
+        pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
 
@@ -277,7 +277,7 @@ pub fn ClampedInStream(comptime InStreamType: type) type {
     };
 }
 
-pub fn clampedInStream(underlying_stream: anytype, size: usize) ClampedInStream(@TypeOf(underlying_stream)) {
+pub fn clampedReader(underlying_stream: anytype, size: usize) ClampedReader(@TypeOf(underlying_stream)) {
     return .{
         .underlying_stream = underlying_stream,
 
@@ -286,17 +286,17 @@ pub fn clampedInStream(underlying_stream: anytype, size: usize) ClampedInStream(
     };
 }
 
-test "ClampedInStream" {
+test "ClampedReader" {
     var string = "hello world";
     var fixed_buffer_stream = std.io.fixedBufferStream(string);
 
-    var clamped_in_stream = clampedInStream(fixed_buffer_stream.inStream(), 5);
-    std.testing.expectEqual(@as(u8, 'h'), try clamped_in_stream.inStream().readByte());
-    std.testing.expectEqual(@as(u8, 'e'), try clamped_in_stream.inStream().readByte());
-    std.testing.expectEqual(@as(u8, 'l'), try clamped_in_stream.inStream().readByte());
-    std.testing.expectEqual(@as(u8, 'l'), try clamped_in_stream.inStream().readByte());
-    std.testing.expectEqual(@as(u8, 'o'), try clamped_in_stream.inStream().readByte());
-    std.testing.expectError(error.EndOfStream, clamped_in_stream.inStream().readByte());
+    var clamped_reader = clampedReader(fixed_buffer_stream.reader(), 5);
+    std.testing.expectEqual(@as(u8, 'h'), try clamped_reader.reader().readByte());
+    std.testing.expectEqual(@as(u8, 'e'), try clamped_reader.reader().readByte());
+    std.testing.expectEqual(@as(u8, 'l'), try clamped_reader.reader().readByte());
+    std.testing.expectEqual(@as(u8, 'l'), try clamped_reader.reader().readByte());
+    std.testing.expectEqual(@as(u8, 'o'), try clamped_reader.reader().readByte());
+    std.testing.expectError(error.EndOfStream, clamped_reader.reader().readByte());
 }
 
 fn ErrorOf(comptime Func: type) type {
@@ -305,12 +305,12 @@ fn ErrorOf(comptime Func: type) type {
 }
 
 // --- Before ---
-// const count = try readVarint(u32, payload.inStream());
+// const count = try readVarint(u32, payload.reader());
 // result.field = arena.allocator.alloc(@TypeOf(result.field), count);
 // for (result.field) |*item| {
 //
 // --- After ---
-// const count = try readVarint(u32, payload.inStream());
+// const count = try readVarint(u32, payload.reader());
 // for (self.allocInto(&result.field, count)) |*item| {
 fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !std.meta.Child(@TypeOf(ptr_to_slice)) {
     const Slice = std.meta.Child(@TypeOf(ptr_to_slice));
@@ -320,13 +320,13 @@ fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !std.meta.Child
     return ptr_to_slice.*;
 }
 
-pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
-    const signature = try in_stream.readIntLittle(u32);
+pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
+    const signature = try reader.readIntLittle(u32);
     if (signature != magic_number) {
         return error.InvalidFormat;
     }
 
-    const version = try in_stream.readIntLittle(u32);
+    const version = try reader.readIntLittle(u32);
     if (version != 1) {
         return error.InvalidFormat;
     }
@@ -335,87 +335,87 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
     errdefer result.arena.deinit();
 
     while (true) {
-        const id = in_stream.readByte() catch |err| switch (err) {
+        const id = reader.readByte() catch |err| switch (err) {
             error.EndOfStream => break,
             else => return err,
         };
-        const payload_len = try readVarint(u32, in_stream);
-        var payload = clampedInStream(in_stream, payload_len);
+        const payload_len = try readVarint(u32, reader);
+        var payload = clampedReader(reader, payload_len);
 
         switch (try std.meta.intToEnum(Section, id)) {
             .Type => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.@"type", count)) |*t| {
-                    t.form = try readVarintEnum(Type.Form, payload.inStream());
+                    t.form = try readVarintEnum(Type.Form, payload.reader());
 
-                    const param_count = try readVarint(u32, payload.inStream());
+                    const param_count = try readVarint(u32, payload.reader());
                     for (try result.allocInto(&t.param_types, param_count)) |*param_type| {
-                        param_type.* = try readVarintEnum(Type.Value, payload.inStream());
+                        param_type.* = try readVarintEnum(Type.Value, payload.reader());
                     }
 
-                    const return_count = try readVarint(u1, payload.inStream());
-                    t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.inStream());
+                    const return_count = try readVarint(u1, payload.reader());
+                    t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.reader());
                 }
             },
             .Import => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.import, count)) |*i| {
-                    const module_len = try readVarint(u32, payload.inStream());
+                    const module_len = try readVarint(u32, payload.reader());
                     const module_data = try result.arena.allocator.alloc(u8, module_len);
-                    try payload.inStream().readNoEof(module_data);
+                    try payload.reader().readNoEof(module_data);
                     i.module = module_data;
 
-                    const field_len = try readVarint(u32, payload.inStream());
+                    const field_len = try readVarint(u32, payload.reader());
                     const field_data = try result.arena.allocator.alloc(u8, field_len);
-                    try payload.inStream().readNoEof(field_data);
+                    try payload.reader().readNoEof(field_data);
                     i.field = field_data;
 
-                    i.kind = try readVarintEnum(ExternalKind, payload.inStream());
+                    i.kind = try readVarintEnum(ExternalKind, payload.reader());
                 }
             },
             .Function => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.function, count)) |*f| {
-                    const index = try readVarint(u32, payload.inStream());
+                    const index = try readVarint(u32, payload.reader());
                     f.* = @intToEnum(Index.FuncType, index);
                 }
             },
             .Table => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.table, count)) |*t| {
-                    t.element_type = try readVarintEnum(Type.Elem, payload.inStream());
+                    t.element_type = try readVarintEnum(Type.Elem, payload.reader());
 
-                    const flags = try readVarint(u1, payload.inStream());
-                    t.limits.initial = try readVarint(u32, payload.inStream());
-                    t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.inStream());
+                    const flags = try readVarint(u1, payload.reader());
+                    t.limits.initial = try readVarint(u32, payload.reader());
+                    t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
             },
             .Memory => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.memory, count)) |*m| {
-                    const flags = try readVarint(u1, payload.inStream());
-                    m.limits.initial = try readVarint(u32, payload.inStream());
-                    m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.inStream());
+                    const flags = try readVarint(u1, payload.reader());
+                    m.limits.initial = try readVarint(u32, payload.reader());
+                    m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
             },
             .Global => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.global, count)) |*g| {
-                    g.@"type".content_type = try readVarintEnum(Type.Value, payload.inStream());
-                    g.@"type".mutability = (try readVarint(u1, payload.inStream())) == 1;
+                    g.@"type".content_type = try readVarintEnum(Type.Value, payload.reader());
+                    g.@"type".mutability = (try readVarint(u1, payload.reader())) == 1;
                     g.init = .{}; // FIXME
                 }
             },
             .Export => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.@"export", count)) |*e| {
-                    const field_len = try readVarint(u32, payload.inStream());
+                    const field_len = try readVarint(u32, payload.reader());
                     const field_data = try result.arena.allocator.alloc(u8, field_len);
-                    try payload.inStream().readNoEof(field_data);
+                    try payload.reader().readNoEof(field_data);
                     e.field = field_data;
 
-                    const kind = try readVarintEnum(ExternalKind, payload.inStream());
-                    const index = try readVarint(u32, payload.inStream());
+                    const kind = try readVarintEnum(ExternalKind, payload.reader());
+                    const index = try readVarint(u32, payload.reader());
                     e.index = switch (kind) {
                         .Table => .{ .Table = @intToEnum(Index.Table, index) },
                         .Function => .{ .Function = @intToEnum(Index.Function, index) },
@@ -425,29 +425,29 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                 }
             },
             .Start => {
-                const index = try readVarint(u32, payload.inStream());
+                const index = try readVarint(u32, payload.reader());
                 result.start = .{
                     .index = @intToEnum(Index.Function, index),
                 };
             },
             .Element => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.element, count)) |*e| {
-                    const index = try readVarint(u32, payload.inStream());
+                    const index = try readVarint(u32, payload.reader());
                     e.index = @intToEnum(Index.Table, index);
                     e.offset = .{}; // FIXME
 
-                    const num_elem = try readVarint(u32, payload.inStream());
+                    const num_elem = try readVarint(u32, payload.reader());
                     for (try result.allocInto(&e.elems, count)) |*func| {
-                        const func_index = try readVarint(u32, payload.inStream());
+                        const func_index = try readVarint(u32, payload.reader());
                         func.* = @intToEnum(Index.Function, func_index);
                     }
                 }
             },
             .Code => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.code, count)) |*c| {
-                    const body_size = try readVarint(u32, payload.inStream());
+                    const body_size = try readVarint(u32, payload.reader());
                     if (body_size != payload.remaining) {
                         // FIXME: this is probably the wrong size
                         return error.BodySizeMismatch;
@@ -456,10 +456,10 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                     c.locals = blk: {
                         // TODO: double pass here to preallocate the exact array size
                         var list = std.ArrayList(Type.Value).init(&result.arena.allocator);
-                        var local_count = try readVarint(u32, payload.inStream());
+                        var local_count = try readVarint(u32, payload.reader());
                         while (local_count > 0) : (local_count -= 1) {
-                            var current_count = try readVarint(u32, payload.inStream());
-                            const typ = try readVarintEnum(Type.Value, payload.inStream());
+                            var current_count = try readVarint(u32, payload.reader());
+                            const typ = try readVarintEnum(Type.Value, payload.reader());
                             while (current_count > 0) : (current_count -= 1) {
                                 try list.append(typ);
                             }
@@ -470,7 +470,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                     c.code = code: {
                         var list = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                         while (true) {
-                            const opcode = payload.inStream().readByte() catch |err| switch (err) {
+                            const opcode = payload.reader().readByte() catch |err| switch (err) {
                                 error.EndOfStream => break :code list.items,
                                 else => return err,
                             };
@@ -480,23 +480,23 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                                     .op = op,
                                     .arg = switch (op.arg_kind) {
                                         .Void => .{ .I64 = 0 },
-                                        .I32 => .{ .I32 = try readVarint(i32, payload.inStream()) },
-                                        .U32 => .{ .U32 = try readVarint(u32, payload.inStream()) },
-                                        .I64 => .{ .I64 = try readVarint(i64, payload.inStream()) },
-                                        .U64 => .{ .U64 = try readVarint(u64, payload.inStream()) },
-                                        .F32 => .{ .F64 = try payload.inStream().readIntLittle(f32) },
-                                        .F64 => .{ .F64 = try payload.inStream().readIntLittle(f64) },
-                                        .Type => .{ .I64 = try readVarint(u7, payload.inStream()) },
+                                        .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
+                                        .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
+                                        .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
+                                        .U64 => .{ .U64 = try readVarint(u64, payload.reader()) },
+                                        .F32 => .{ .F64 = try payload.reader().readIntLittle(f32) },
+                                        .F64 => .{ .F64 = try payload.reader().readIntLittle(f64) },
+                                        .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
                                         .U32z => Op.Fixval.init(Op.Arg.U32z{
-                                            .data = try readVarint(u32, payload.inStream()),
-                                            .reserved = try payload.inStream().readByte(),
+                                            .data = try readVarint(u32, payload.reader()),
+                                            .reserved = try payload.reader().readByte(),
                                         }),
                                         .Mem => Op.Fixval.init(Op.Arg.Mem{
-                                            .offset = try readVarint(u32, payload.inStream()),
-                                            .align_ = try readVarint(u32, payload.inStream()),
+                                            .offset = try readVarint(u32, payload.reader()),
+                                            .align_ = try readVarint(u32, payload.reader()),
                                         }),
                                         .Array => blk: {
-                                            const target_count = try readVarint(u32, payload.inStream());
+                                            const target_count = try readVarint(u32, payload.reader());
                                             const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
                                             const data = try result.arena.allocator.alloc(u32, size);
 
@@ -505,7 +505,7 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                                                 .len = data.len,
                                             };
                                             for (data) |*item| {
-                                                item.* = try readVarint(u32, payload.inStream());
+                                                item.* = try readVarint(u32, payload.reader());
                                             }
                                             break :blk Op.Fixval.init(array);
                                         },
@@ -519,21 +519,21 @@ pub fn parse(allocator: *std.mem.Allocator, in_stream: anytype) !Module {
                 }
             },
             .Data => {
-                const count = try readVarint(u32, payload.inStream());
+                const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.data, count)) |*d| {
-                    const index = try readVarint(u32, payload.inStream());
+                    const index = try readVarint(u32, payload.reader());
                     d.index = @intToEnum(Index.Memory, index);
                     d.offset = .{}; // FIXME
 
-                    const size = try readVarint(u32, payload.inStream());
+                    const size = try readVarint(u32, payload.reader());
                     const data = try result.arena.allocator.alloc(u8, size);
-                    try payload.inStream().readNoEof(data);
+                    try payload.reader().readNoEof(data);
                     d.data = data;
                 }
             },
             .Custom => @panic("TODO"),
         }
-        try expectEos(payload.inStream());
+        try expectEos(payload.reader());
     }
 
     return result;
@@ -545,7 +545,7 @@ const empty_raw_bytes = &[_]u8{ 0, 'a', 's', 'm', 1, 0, 0, 0 };
 
 test "empty module" {
     var ios = std.io.fixedBufferStream(empty_raw_bytes);
-    var module = try Module.parse(std.testing.allocator, ios.inStream());
+    var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 0), module.memory.len);
@@ -559,7 +559,7 @@ test "module with only type" {
         "\x01\x04\x01\x60\x00\x00" ++ //      (type (func)))
         "";
     var ios = std.io.fixedBufferStream(raw_bytes);
-    var module = try Module.parse(std.testing.allocator, ios.inStream());
+    var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 1), module.@"type".len);
@@ -583,7 +583,7 @@ test "module with function body" {
         "";
 
     var ios = std.io.fixedBufferStream(raw_bytes);
-    var module = try Module.parse(std.testing.allocator, ios.inStream());
+    var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
     std.testing.expectEqual(@as(usize, 1), module.@"type".len);
