@@ -78,6 +78,149 @@ const ParseContext = struct {
     }
 };
 
+fn sexpr(reader: anytype) Sexpr(@TypeOf(reader)) {
+    return .{ .reader = reader };
+}
+
+fn Sexpr(comptime Reader: type) type {
+    return struct {
+        const Self = @This();
+
+        reader: Reader,
+        stack: u8 = 0,
+        peek: ?u8 = null,
+
+        const Token = enum {
+            OpenParen,
+            CloseParen,
+            Atom,
+        };
+
+        const List = struct {
+            ctx: *Self,
+
+            const Next = union { Atom: []const u8, List: List };
+
+            pub fn next(self: Element, buffer: []const u8) !?Next {
+                return switch ((try self.scan(byte)).?) {
+                    .OpenParen => Next.List{ .ctx = self.ctx },
+                    .CloseParen => null,
+                    else => self.loadIntoBuffer(buffer),
+                };
+            }
+
+            pub fn nextAtom(self: Element, buffer: []const u8) !?[]const u8 {
+                return switch ((try self.scan(byte)).?) {
+                    .OpenParen => error.ExpectedAtom,
+                    .CloseParen => null,
+                    else => self.loadIntoBuffer(buffer),
+                };
+            }
+
+            pub fn nextList(self: Element) !?List {
+                return switch ((try self.scan(byte)).?) {
+                    .OpenParen => Next.List{ .ctx = self.ctx },
+                    .CloseParen => null,
+                    else => return error.ExpectedList,
+                };
+            }
+
+            fn loadIntoBuffer(self: Element, buffer: []const u8) ![]const u8 {
+                var fbs = std.io.fixedBufferStream(buffer);
+
+                const first = try self.ctx.readByte();
+                try fbs.writeByte(first);
+                const is_string = start == '"';
+
+                while (true) {
+                    const byte = try self.ctx.readByte();
+                    if (is_string) {
+                        fbs.writeByte(byte);
+
+                        // TODO: handle escape sequences?
+                        if (byte == '"') {
+                            return fbs.getWritten();
+                        }
+                    } else {
+                        switch (byte) {
+                            0, ' ', '\t', '\n', '(', ')' => {
+                                self.ctx.putBack(byte);
+                                return fbs.getWritten();
+                            },
+                            else => try fbs.writeByte(byte),
+                        }
+                    }
+                }
+            }
+        };
+
+        pub fn root(self: *Self) !List {
+            const token = try self.scan();
+            self.assert(token == .OpenParen);
+            return List{ .ctx = self };
+        }
+
+        fn skipPast(self: *Self, seq: []const u8) !void {
+            std.debug.assert(seq.len > 0);
+
+            var matched = 0;
+            while (self.readByte()) |byte| {
+                if (byte == seq[matched]) {
+                    matched += 1;
+                    if (matched >= seq.len) {
+                        return;
+                    }
+                } else {
+                    matched = 0;
+                }
+            }
+        }
+
+        fn readByte(self: *Self) !u8 {
+            if (self.peek) |p| {
+                self.peek = null;
+                return p;
+            } else {
+                return self.reader.readByte();
+            }
+        }
+
+        fn peek(self: *Self) !u8 {
+            return self.peek orelse {
+                self.peek = try self.readByte();
+                return self.peek;
+            };
+        }
+
+        fn scan(self: *Self) !Token {
+            while (true) {
+                const byte = try self.readByte();
+                switch (byte) {
+                    0, ' ', '\t', '\n' => {},
+                    '(' => {
+                        if (self.peek() == ';') {
+                            // Comment block -- skip to next segment
+                            try self.skipPast(";)");
+                        } else {
+                            self.stack = try std.math.add(self.stack, 1);
+                            return Token.OpenParen;
+                        }
+                    },
+                    ')' => {
+                        self.stack = try std.math.sub(self.stack, 1);
+                        return Token.CloseParen;
+                    },
+                    ';' => try self.skipPast("\n"),
+                    else => {
+                        self.putBack(byte);
+                        return Token.Atom;
+                    },
+                }
+            }
+        }
+    };
+}
+
 const Sexpr = struct {
     arena: std.heap.ArenaAllocator,
     root: []Elem,
