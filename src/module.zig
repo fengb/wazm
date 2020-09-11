@@ -557,8 +557,6 @@ test "module with only type" {
 }
 
 test "module with function body" {
-    // TODO: resurrect WAT so we can write readable tests
-
     // (module
     //   (type (;0;) (func (result i32)))
     //   (func (;0;) (type 0) (result i32)
