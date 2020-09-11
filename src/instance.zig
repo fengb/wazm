@@ -54,7 +54,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !I
     var exports = std.StringHashMap(Export).init(allocator);
     errdefer exports.deinit();
     for (module.@"export") |exp| {
-        try exports.putNoClobber(exp.field, .{ .Func = @enumToInt(exp.index.Function) });
+        try exports.putNoClobber(exp.field, .{ .Func = exp.index });
     }
 
     var funcs = std.ArrayList(Func).init(allocator);

@@ -249,8 +249,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     while (try root.nextList()) |command| {
         const swhash = util.Swhash(8);
 
-        var name_buf: [0x10]u8 = undefined;
-        switch (swhash.match(try command.obtainAtom(&name_buf))) {
+        var cmdname_buf: [0x10]u8 = undefined;
+        switch (swhash.match(try command.obtainAtom(&cmdname_buf))) {
             swhash.case("memory") => {
                 var tmp_buf: [0x10]u8 = undefined;
                 try memories.append(.{
@@ -349,6 +349,36 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     .return_type = result,
                 });
             },
+            swhash.case("export") => {
+                var export_name_buf: [0x100]u8 = undefined;
+                const export_name = try command.obtainAtom(&export_name_buf);
+                if (export_name[0] != '"') {
+                    return error.ExpectString;
+                }
+                std.debug.assert(export_name[export_name.len - 1] == '"');
+
+                const pair = try command.obtainList();
+
+                var kind_buf: [0x10]u8 = undefined;
+                const kind = try pair.obtainAtom(&kind_buf);
+
+                var index_buf: [0x10]u8 = undefined;
+                const index = try pair.obtainAtom(&index_buf);
+
+                try exports.append(.{
+                    .field = try arena.allocator.dupe(u8, export_name[1 .. export_name.len - 1]),
+                    .kind = switch (swhash.match(kind)) {
+                        swhash.case("func") => .Function,
+                        swhash.case("table") => .Table,
+                        swhash.case("memory") => .Memory,
+                        swhash.case("global") => .Global,
+                        else => return error.ExpectExternalKind,
+                    },
+                    .index = try std.fmt.parseInt(u32, index, 10),
+                });
+
+                try pair.expectEnd();
+            },
             else => return error.Fail,
         }
     }
@@ -414,5 +444,21 @@ test "parse" {
         std.testing.expectEqual(Module.Type.Value.F64, code.locals[0]);
 
         std.testing.expectEqual(@as(usize, 3), code.code.len);
+    }
+    {
+        var fbs = std.io.fixedBufferStream(
+            \\(module
+            \\  (func (param i32) local.get 0)
+            \\  (export "foo" (func 0)))
+        );
+        var module = try parse(std.testing.allocator, fbs.reader());
+        defer module.deinit();
+
+        std.testing.expectEqual(@as(usize, 1), module.function.len);
+
+        std.testing.expectEqual(@as(usize, 1), module.@"export".len);
+        std.testing.expectEqualSlices(u8, "foo", module.@"export"[0].field);
+        std.testing.expectEqual(Module.ExternalKind.Function, module.@"export"[0].kind);
+        std.testing.expectEqual(@as(u32, 0), module.@"export"[0].index);
     }
 }

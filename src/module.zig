@@ -54,12 +54,8 @@ global: []struct {
 /// Code=7
 @"export": []struct {
     field: []const u8,
-    index: union(ExternalKind) {
-        Table: Index.Table,
-        Function: Index.Function,
-        Memory: Index.Memory,
-        Global: Index.Global,
-    },
+    kind: ExternalKind,
+    index: u32,
 },
 
 /// Code=8
@@ -165,14 +161,14 @@ pub const Type = struct {
     };
 };
 
-const ExternalKind = enum(u7) {
+pub const ExternalKind = enum(u7) {
     Function = 0,
     Table = 1,
     Memory = 2,
     Global = 3,
 };
 
-const ResizableLimits = struct {
+pub const ResizableLimits = struct {
     initial: u32,
     maximum: ?u32,
 };
@@ -413,15 +409,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     const field_data = try result.arena.allocator.alloc(u8, field_len);
                     try payload.reader().readNoEof(field_data);
                     e.field = field_data;
-
-                    const kind = try readVarintEnum(ExternalKind, payload.reader());
-                    const index = try readVarint(u32, payload.reader());
-                    e.index = switch (kind) {
-                        .Table => .{ .Table = @intToEnum(Index.Table, index) },
-                        .Function => .{ .Function = @intToEnum(Index.Function, index) },
-                        .Memory => .{ .Memory = @intToEnum(Index.Memory, index) },
-                        .Global => .{ .Global = @intToEnum(Index.Global, index) },
-                    };
+                    e.kind = try readVarintEnum(ExternalKind, payload.reader());
+                    e.index = try readVarint(u32, payload.reader());
                 }
             },
             .Start => {
