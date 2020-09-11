@@ -19,7 +19,7 @@ fn Sexpr(comptime Reader: type) type {
         const Self = @This();
 
         reader: Reader,
-        stack: u8 = 0,
+        current_stack: isize = 0,
         _peek: ?u8 = null,
         _debug_buffer: if (debug_buffer)
             std.fifo.LinearFifo(u8, .{ .Static = 0x100 })
@@ -34,10 +34,13 @@ fn Sexpr(comptime Reader: type) type {
 
         pub const List = struct {
             ctx: *Self,
+            stack_level: isize,
 
             const Next = union { Atom: []const u8, List: List };
 
             pub fn next(self: List, buffer: []u8) !?Next {
+                if (!self.isAtEnd()) return null;
+
                 return switch (try self.ctx.scan()) {
                     .OpenParen => Next{ .List = .{ .ctx = self.ctx } },
                     .CloseParen => null,
@@ -54,6 +57,8 @@ fn Sexpr(comptime Reader: type) type {
             }
 
             pub fn nextAtom(self: List, buffer: []u8) !?[]const u8 {
+                if (self.isAtEnd()) return null;
+
                 return switch (try self.ctx.scan()) {
                     .OpenParen => error.ExpectedAtomGotList,
                     .CloseParen => null,
@@ -62,17 +67,41 @@ fn Sexpr(comptime Reader: type) type {
             }
 
             pub fn nextList(self: List) !?List {
+                if (self.isAtEnd()) return null;
+
                 return switch (try self.ctx.scan()) {
-                    .OpenParen => List{ .ctx = self.ctx },
+                    .OpenParen => List{ .ctx = self.ctx, .stack_level = self.ctx.current_stack },
                     .CloseParen => null,
                     else => error.ExpectedListGotAtom,
                 };
             }
 
             pub fn expectEnd(self: List) !void {
+                if (self.isAtEnd()) return;
+
                 switch (try self.ctx.scan()) {
                     .CloseParen => {},
                     else => return error.ExpectedEndOfList,
+                }
+            }
+
+            fn isAtEnd(self: List) bool {
+                switch (self.stack_level - self.ctx.current_stack) {
+                    0 => return false,
+                    1 => {
+                        if (debug_buffer and self.ctx._debug_buffer.peekItem(self.ctx._debug_buffer.count - 1) != ')') {
+                            self.ctx.debugDump(std.io.getStdOut().writer()) catch {};
+                            unreachable;
+                        }
+                        return true;
+                    },
+                    else => {
+                        if (debug_buffer) {
+                            self.ctx.debugDump(std.io.getStdOut().writer()) catch {};
+                            std.debug.print("State: {} -- Element: {}\n", .{ self.ctx.current_stack, self.stack_level });
+                        }
+                        unreachable;
+                    },
                 }
             }
 
@@ -109,7 +138,7 @@ fn Sexpr(comptime Reader: type) type {
         pub fn root(self: *Self) !List {
             const token = try self.scan();
             std.debug.assert(token == .OpenParen);
-            return List{ .ctx = self };
+            return List{ .ctx = self, .stack_level = self.current_stack };
         }
 
         pub fn debugDump(self: Self, writer: anytype) !void {
@@ -179,12 +208,15 @@ fn Sexpr(comptime Reader: type) type {
                             // Comment block -- skip to next segment
                             try self.skipPast(";)");
                         } else {
-                            self.stack = try std.math.add(u8, self.stack, 1);
+                            self.current_stack += 1;
                             return Token.OpenParen;
                         }
                     },
                     ')' => {
-                        self.stack = try std.math.sub(u8, self.stack, 1);
+                        if (self.current_stack <= 0) {
+                            return error.UnmatchedParens;
+                        }
+                        self.current_stack -= 1;
                         return Token.CloseParen;
                     },
                     ';' => try self.skipPast("\n"),
@@ -209,6 +241,8 @@ test "sexpr" {
         std.testing.expectEqualSlices(u8, "a", try root.obtainAtom(&buf));
         std.testing.expectEqualSlices(u8, "bc", try root.obtainAtom(&buf));
         std.testing.expectEqualSlices(u8, "42", try root.obtainAtom(&buf));
+        try root.expectEnd();
+        try root.expectEnd();
         try root.expectEnd();
     }
     {
@@ -412,6 +446,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
             },
             else => return error.Fail,
         }
+        try command.expectEnd();
     }
 
     return Module{
