@@ -3,8 +3,15 @@ const Module = @import("module.zig");
 const Op = @import("op.zig");
 const util = @import("util.zig");
 
+const debug_buffer = std.builtin.mode == .Debug;
+
 fn sexpr(reader: anytype) Sexpr(@TypeOf(reader)) {
-    return .{ .reader = reader };
+    return .{
+        .reader = reader,
+        ._debug_buffer = if (debug_buffer)
+            std.fifo.LinearFifo(u8, .{ .Static = 0x100 }).init()
+        else {},
+    };
 }
 
 fn Sexpr(comptime Reader: type) type {
@@ -14,6 +21,10 @@ fn Sexpr(comptime Reader: type) type {
         reader: Reader,
         stack: u8 = 0,
         _peek: ?u8 = null,
+        _debug_buffer: if (debug_buffer)
+            std.fifo.LinearFifo(u8, .{ .Static = 0x100 })
+        else
+            void,
 
         const Token = enum {
             OpenParen,
@@ -101,6 +112,16 @@ fn Sexpr(comptime Reader: type) type {
             return List{ .ctx = self };
         }
 
+        pub fn debugDump(self: Self, writer: anytype) !void {
+            var tmp = self._debug_buffer;
+            const reader = tmp.reader();
+
+            var buf: [0x100]u8 = undefined;
+            const size = try reader.read(&buf);
+            try writer.writeAll(buf[0..size]);
+            try writer.writeByte('\n');
+        }
+
         fn skipPast(self: *Self, seq: []const u8) !void {
             std.debug.assert(seq.len > 0);
 
@@ -123,7 +144,15 @@ fn Sexpr(comptime Reader: type) type {
                 self._peek = null;
                 return p;
             } else {
-                return self.reader.readByte();
+                const byte = try self.reader.readByte();
+                if (debug_buffer) {
+                    if (self._debug_buffer.writableLength() == 0) {
+                        self._debug_buffer.discard(1);
+                        std.debug.assert(self._debug_buffer.writableLength() == 1);
+                    }
+                    self._debug_buffer.writeAssumeCapacity(&[_]u8{byte});
+                }
+                return byte;
             }
         }
 
@@ -224,6 +253,8 @@ test "sexpr" {
 pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var ctx = sexpr(reader);
     const root = try ctx.root();
+
+    errdefer if (debug_buffer) ctx.debugDump(std.io.getStdOut().writer()) catch {};
 
     var module_buf: [0x10]u8 = undefined;
     if (!std.mem.eql(u8, try root.obtainAtom(&module_buf), "module")) {
