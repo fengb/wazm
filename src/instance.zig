@@ -93,16 +93,12 @@ pub fn call(self: *Instance, name: []const u8, params: []const Value) !?Value {
     const lock = self.mutex.acquire();
     defer lock.release();
 
-    switch (self.exports.get(name) orelse return error.ExportNotFound) {
-        .Func => |func_id| {
-            return self.callForTest(func_id, params);
-        },
-        else => return error.ExportNotAFunction,
+    const exp = self.exports.get(name) orelse return error.ExportNotFound;
+    if (exp != .Func) {
+        return error.ExportNotAFunction;
     }
-}
 
-// TODO: delete me
-pub fn callForTest(self: *Instance, func_id: usize, params: []const Value) !?Value {
+    const func_id = exp.Func;
     const func = self.module.function[func_id];
     const func_type = self.module.@"type"[@enumToInt(func)];
     if (params.len != func_type.param_types.len) {
