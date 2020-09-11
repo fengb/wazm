@@ -78,17 +78,17 @@ const ParseContext = struct {
     }
 };
 
-fn sexpr(reader: anytype) Sexpr(@TypeOf(reader)) {
+fn stexpr(reader: anytype) Stexpr(@TypeOf(reader)) {
     return .{ .reader = reader };
 }
 
-fn Sexpr(comptime Reader: type) type {
+fn Stexpr(comptime Reader: type) type {
     return struct {
         const Self = @This();
 
         reader: Reader,
         stack: u8 = 0,
-        peek: ?u8 = null,
+        _peek: ?u8 = null,
 
         const Token = enum {
             OpenParen,
@@ -96,46 +96,62 @@ fn Sexpr(comptime Reader: type) type {
             Atom,
         };
 
-        const List = struct {
+        pub const List = struct {
             ctx: *Self,
 
             const Next = union { Atom: []const u8, List: List };
 
-            pub fn next(self: Element, buffer: []const u8) !?Next {
-                return switch ((try self.scan(byte)).?) {
-                    .OpenParen => Next.List{ .ctx = self.ctx },
+            pub fn next(self: List, buffer: []u8) !?Next {
+                return switch (try self.ctx.scan()) {
+                    .OpenParen => Next{ .List = .{ .ctx = self.ctx } },
                     .CloseParen => null,
-                    else => self.loadIntoBuffer(buffer),
+                    else => try self.loadIntoBuffer(buffer),
                 };
             }
 
-            pub fn nextAtom(self: Element, buffer: []const u8) !?[]const u8 {
-                return switch ((try self.scan(byte)).?) {
-                    .OpenParen => error.ExpectedAtom,
+            pub fn obtainAtom(self: List, buffer: []u8) ![]const u8 {
+                return (try self.nextAtom(buffer)) orelse error.ExpectedAtomGotNull;
+            }
+
+            pub fn obtainList(self: List) !List {
+                return (try self.nextList()) orelse error.ExpectedListGotNull;
+            }
+
+            pub fn nextAtom(self: List, buffer: []u8) !?[]const u8 {
+                return switch (try self.ctx.scan()) {
+                    .OpenParen => error.ExpectedAtomGotList,
                     .CloseParen => null,
-                    else => self.loadIntoBuffer(buffer),
+                    else => try self.loadIntoBuffer(buffer),
                 };
             }
 
-            pub fn nextList(self: Element) !?List {
-                return switch ((try self.scan(byte)).?) {
-                    .OpenParen => Next.List{ .ctx = self.ctx },
+            pub fn nextList(self: List) !?List {
+                return switch (try self.ctx.scan()) {
+                    .OpenParen => List{ .ctx = self.ctx },
                     .CloseParen => null,
-                    else => return error.ExpectedList,
+                    else => error.ExpectedListGotAtom,
                 };
             }
 
-            fn loadIntoBuffer(self: Element, buffer: []const u8) ![]const u8 {
+            pub fn expectEnd(self: List) !void {
+                switch (try self.ctx.scan()) {
+                    .CloseParen => {},
+                    else => return error.ExpectedEndOfList,
+                }
+            }
+
+            fn loadIntoBuffer(self: List, buffer: []u8) ![]const u8 {
                 var fbs = std.io.fixedBufferStream(buffer);
+                const writer = fbs.writer();
 
                 const first = try self.ctx.readByte();
-                try fbs.writeByte(first);
-                const is_string = start == '"';
+                try writer.writeByte(first);
+                const is_string = first == '"';
 
                 while (true) {
                     const byte = try self.ctx.readByte();
                     if (is_string) {
-                        fbs.writeByte(byte);
+                        try writer.writeByte(byte);
 
                         // TODO: handle escape sequences?
                         if (byte == '"') {
@@ -147,7 +163,7 @@ fn Sexpr(comptime Reader: type) type {
                                 self.ctx.putBack(byte);
                                 return fbs.getWritten();
                             },
-                            else => try fbs.writeByte(byte),
+                            else => try writer.writeByte(byte),
                         }
                     }
                 }
@@ -156,15 +172,16 @@ fn Sexpr(comptime Reader: type) type {
 
         pub fn root(self: *Self) !List {
             const token = try self.scan();
-            self.assert(token == .OpenParen);
+            std.debug.assert(token == .OpenParen);
             return List{ .ctx = self };
         }
 
         fn skipPast(self: *Self, seq: []const u8) !void {
             std.debug.assert(seq.len > 0);
 
-            var matched = 0;
-            while (self.readByte()) |byte| {
+            var matched: usize = 0;
+            while (true) {
+                const byte = try self.readByte();
                 if (byte == seq[matched]) {
                     matched += 1;
                     if (matched >= seq.len) {
@@ -177,8 +194,8 @@ fn Sexpr(comptime Reader: type) type {
         }
 
         fn readByte(self: *Self) !u8 {
-            if (self.peek) |p| {
-                self.peek = null;
+            if (self._peek) |p| {
+                self._peek = null;
                 return p;
             } else {
                 return self.reader.readByte();
@@ -186,10 +203,16 @@ fn Sexpr(comptime Reader: type) type {
         }
 
         fn peek(self: *Self) !u8 {
-            return self.peek orelse {
-                self.peek = try self.readByte();
-                return self.peek;
+            return self._peek orelse {
+                const byte = try self.readByte();
+                self._peek = byte;
+                return byte;
             };
+        }
+
+        fn putBack(self: *Self, byte: u8) void {
+            std.debug.assert(self._peek == null);
+            self._peek = byte;
         }
 
         fn scan(self: *Self) !Token {
@@ -198,16 +221,16 @@ fn Sexpr(comptime Reader: type) type {
                 switch (byte) {
                     0, ' ', '\t', '\n' => {},
                     '(' => {
-                        if (self.peek() == ';') {
+                        if ((try self.peek()) == ';') {
                             // Comment block -- skip to next segment
                             try self.skipPast(";)");
                         } else {
-                            self.stack = try std.math.add(self.stack, 1);
+                            self.stack = try std.math.add(u8, self.stack, 1);
                             return Token.OpenParen;
                         }
                     },
                     ')' => {
-                        self.stack = try std.math.sub(self.stack, 1);
+                        self.stack = try std.math.sub(u8, self.stack, 1);
                         return Token.CloseParen;
                     },
                     ';' => try self.skipPast("\n"),
@@ -219,6 +242,58 @@ fn Sexpr(comptime Reader: type) type {
             }
         }
     };
+}
+
+test "stexpr" {
+    {
+        var fbs = std.io.fixedBufferStream("(a bc 42)");
+        var s = stexpr(fbs.reader());
+
+        const root = try s.root();
+
+        var buf: [0x100]u8 = undefined;
+        std.testing.expectEqualSlices(u8, "a", try root.obtainAtom(&buf));
+        std.testing.expectEqualSlices(u8, "bc", try root.obtainAtom(&buf));
+        std.testing.expectEqualSlices(u8, "42", try root.obtainAtom(&buf));
+        try root.expectEnd();
+    }
+    {
+        var fbs = std.io.fixedBufferStream("(() ())");
+        var s = stexpr(fbs.reader());
+
+        const root = try s.root();
+
+        const first = try root.obtainList();
+        std.testing.expectEqual(@as(?@TypeOf(root), null), try first.nextList());
+
+        const second = try root.obtainList();
+        std.testing.expectEqual(@as(?@TypeOf(root), null), try second.nextList());
+    }
+    {
+        var fbs = std.io.fixedBufferStream("( ( ( ())))");
+        var s = stexpr(fbs.reader());
+
+        const root = try s.root();
+
+        const first = try root.obtainList();
+        const second = try first.obtainList();
+        const third = try second.obtainList();
+        try third.expectEnd();
+        try second.expectEnd();
+        try first.expectEnd();
+    }
+    {
+        var fbs = std.io.fixedBufferStream("(block (; ; ; ;) ;; label = @1\n  local.get 4)");
+        var s = stexpr(fbs.reader());
+
+        const root = try s.root();
+
+        var buf: [0x100]u8 = undefined;
+        std.testing.expectEqualSlices(u8, "block", try root.obtainAtom(&buf));
+        std.testing.expectEqualSlices(u8, "local.get", try root.obtainAtom(&buf));
+        std.testing.expectEqualSlices(u8, "4", try root.obtainAtom(&buf));
+        try root.expectEnd();
+    }
 }
 
 const Sexpr = struct {
