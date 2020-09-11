@@ -4,13 +4,14 @@ const Wat = @import("../wat.zig");
 const Instance = @import("../instance.zig");
 
 test "stuff" {
-    var module = try Wat.parse(std.testing.allocator,
+    var fbs = std.io.fixedBufferStream(
         \\(module
         \\  (func (result i32)
         \\    i32.const 1
         \\    i32.const 42
         \\    i32.add))
     );
+    var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
     var instance = try module.instantiate(std.testing.allocator, struct {});
