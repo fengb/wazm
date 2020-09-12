@@ -364,9 +364,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 var code = std.ArrayList(Module.Instr).init(&arena.allocator);
                 var val_buf: [0x100]u8 = undefined;
                 while (try command.nextAtom(&val_buf)) |val| {
-                    const op = Op.byName(val) orelse {
-                        return error.OpNotFound;
-                    };
+                    const op = Op.byName(val) orelse return error.OpNotFound;
 
                     try code.append(.{
                         .op = op,

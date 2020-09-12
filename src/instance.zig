@@ -77,7 +77,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !I
         .mutex = std.Mutex{},
         .memory = try allocator.alloc(u8, 65536),
         .exports = exports,
-        .funcs = funcs.items,
+        .funcs = funcs.toOwnedSlice(),
         .allocator = allocator,
     };
 }

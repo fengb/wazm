@@ -464,45 +464,44 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 else => return err,
                             };
 
-                            if (Op.all[opcode]) |op| {
-                                try list.append(.{
-                                    .op = op,
-                                    .arg = switch (op.arg_kind) {
-                                        .Void => .{ .I64 = 0 },
-                                        .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
-                                        .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
-                                        .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
-                                        .U64 => .{ .U64 = try readVarint(u64, payload.reader()) },
-                                        .F32 => .{ .F64 = try payload.reader().readIntLittle(f32) },
-                                        .F64 => .{ .F64 = try payload.reader().readIntLittle(f64) },
-                                        .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
-                                        .U32z => Op.Fixval.init(Op.Arg.U32z{
-                                            .data = try readVarint(u32, payload.reader()),
-                                            .reserved = try payload.reader().readByte(),
-                                        }),
-                                        .Mem => Op.Fixval.init(Op.Arg.Mem{
-                                            .offset = try readVarint(u32, payload.reader()),
-                                            .align_ = try readVarint(u32, payload.reader()),
-                                        }),
-                                        .Array => blk: {
-                                            const target_count = try readVarint(u32, payload.reader());
-                                            const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
-                                            const data = try result.arena.allocator.alloc(u32, size);
+                            const op = Op.all[opcode] orelse return error.InvalidOpCode;
 
-                                            var array = Op.Arg.Array{
+                            try list.append(.{
+                                .op = op,
+                                .arg = switch (op.arg_kind) {
+                                    .Void => .{ .I64 = 0 },
+                                    .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
+                                    .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
+                                    .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
+                                    .U64 => .{ .U64 = try readVarint(u64, payload.reader()) },
+                                    .F32 => .{ .F64 = try payload.reader().readIntLittle(f32) },
+                                    .F64 => .{ .F64 = try payload.reader().readIntLittle(f64) },
+                                    .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
+                                    .U32z => Op.Fixval.init(Op.Arg.U32z{
+                                        .data = try readVarint(u32, payload.reader()),
+                                        .reserved = try payload.reader().readByte(),
+                                    }),
+                                    .Mem => Op.Fixval.init(Op.Arg.Mem{
+                                        .offset = try readVarint(u32, payload.reader()),
+                                        .align_ = try readVarint(u32, payload.reader()),
+                                    }),
+                                    .Array => blk: {
+                                        const target_count = try readVarint(u32, payload.reader());
+                                        const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
+
+                                        const data = try result.arena.allocator.alloc(u32, size);
+                                        for (data) |*item| {
+                                            item.* = try readVarint(u32, payload.reader());
+                                        }
+                                        break :blk Op.Fixval.init(
+                                            Op.Arg.Array{
                                                 .data = data.ptr,
                                                 .len = data.len,
-                                            };
-                                            for (data) |*item| {
-                                                item.* = try readVarint(u32, payload.reader());
-                                            }
-                                            break :blk Op.Fixval.init(array);
-                                        },
+                                            },
+                                        );
                                     },
-                                });
-                            } else {
-                                return error.InvalidOpCode;
-                            }
+                                },
+                            });
                         }
                     };
                 }
