@@ -69,7 +69,7 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
     var self = Execution{
         .instance = instance,
         .stack = stack,
-        .stack_top = stack.len,
+        .stack_top = 0,
         .current_frame = Frame.terminus(),
     };
 
@@ -85,8 +85,8 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         if (self.current_frame.instr < func.instrs.len) {
             const instr = func.instrs[self.current_frame.instr];
 
+            self.stack_top -= instr.op.pop.len;
             const pop_array: [*]Op.Fixval = self.stack.ptr + self.stack_top;
-            self.stack_top += instr.op.pop.len;
 
             const result = try instr.op.step(&self, instr.arg, pop_array);
             if (result) |res| {
@@ -97,7 +97,7 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
             const result = self.unwindCall();
 
             if (self.current_frame.isTerminus()) {
-                std.debug.assert(self.stack_top == self.stack.len);
+                std.debug.assert(self.stack_top == 0);
                 return result;
             } else {
                 if (result) |res| {
@@ -188,17 +188,17 @@ pub fn unwindBlock(self: *Execution, target_idx: u32) void {
 
 fn dropN(self: *Execution, size: usize) void {
     std.debug.assert(self.stack_top + size <= self.stack.len);
-    self.stack_top += size;
+    self.stack_top -= size;
 }
 
 fn pop(self: *Execution, comptime T: type) T {
     std.debug.assert(@sizeOf(T) == 16);
-    defer self.stack_top += 1;
+    self.stack_top -= 1;
     return @bitCast(T, self.stack[self.stack_top]);
 }
 
 fn push(self: *Execution, comptime T: type, value: T) !void {
     std.debug.assert(@sizeOf(T) == 16);
-    self.stack_top = try std.math.sub(usize, self.stack_top, 1);
     self.stack[self.stack_top] = @bitCast(Op.Fixval, value);
+    self.stack_top = try std.math.add(usize, self.stack_top, 1);
 }
