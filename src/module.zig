@@ -474,8 +474,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                     .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
                                     .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
                                     .U64 => .{ .U64 = try readVarint(u64, payload.reader()) },
-                                    .F32 => .{ .F64 = try payload.reader().readIntLittle(f32) },
-                                    .F64 => .{ .F64 = try payload.reader().readIntLittle(f64) },
+                                    .F32 => .{ .F64 = @bitCast(f32, try payload.reader().readIntLittle(i32)) },
+                                    .F64 => .{ .F64 = @bitCast(f64, try payload.reader().readIntLittle(i64)) },
                                     .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
                                     .U32z => Op.Fixval.init(Op.Arg.U32z{
                                         .data = try readVarint(u32, payload.reader()),

@@ -29,12 +29,15 @@ pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
 
 // TODO: move these memory methods?
 pub fn load(self: Execution, comptime T: type, start: usize, offset: usize) !T {
-    return std.mem.readIntLittle(T, try self.memGet(start, offset, @sizeOf(T)));
+    const Int = std.meta.Int(false, @bitSizeOf(T));
+    const raw = std.mem.readIntLittle(Int, try self.memGet(start, offset, @sizeOf(T)));
+    return @bitCast(T, raw);
 }
 
 pub fn store(self: Execution, comptime T: type, start: usize, offset: usize, value: T) !void {
     const bytes = try self.memGet(start, offset, @sizeOf(T));
-    std.mem.writeIntLittle(T, bytes, value);
+    const Int = std.meta.Int(false, @bitSizeOf(T));
+    std.mem.writeIntLittle(Int, bytes, @bitCast(Int, value));
 }
 
 fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
