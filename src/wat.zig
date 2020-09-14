@@ -168,6 +168,15 @@ fn Sexpr(comptime Reader: type) type {
             }
         }
 
+        pub fn expectEos(self: *Self) !void {
+            const value = self.scan() catch |err| switch (err) {
+                error.EndOfStream => return,
+                else => return err,
+            };
+
+            return error.ExpectEos;
+        }
+
         fn readByte(self: *Self) !u8 {
             if (self._peek) |p| {
                 self._peek = null;
@@ -204,7 +213,12 @@ fn Sexpr(comptime Reader: type) type {
                 switch (byte) {
                     0, ' ', '\t', '\n' => {},
                     '(' => {
-                        if ((try self.peek()) == ';') {
+                        const next = self.peek() catch |err| switch (err) {
+                            error.EndOfStream => 0,
+                            else => return err,
+                        };
+
+                        if (next == ';') {
                             // Comment block -- skip to next segment
                             try self.skipPast(";)");
                         } else {
@@ -222,6 +236,9 @@ fn Sexpr(comptime Reader: type) type {
                     ';' => try self.skipPast("\n"),
                     else => {
                         self.putBack(byte);
+                        if (self.current_stack <= 0) {
+                            return error.TrailingLiteral;
+                        }
                         return Token.Atom;
                     },
                 }
@@ -446,6 +463,9 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
         }
         try command.expectEnd();
     }
+
+    try root.expectEnd();
+    try ctx.expectEos();
 
     return Module{
         .custom = customs.items,
