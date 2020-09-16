@@ -91,6 +91,7 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         const func = self.instance.funcs[self.current_frame.func];
         if (self.current_frame.instr < func.instrs.len) {
             const instr = func.instrs[self.current_frame.instr];
+            self.current_frame.instr += 1;
 
             self.stack_top -= instr.op.pop.len;
             const pop_array: [*]Op.Fixval = self.stack.ptr + self.stack_top;
@@ -99,7 +100,6 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
             if (result) |res| {
                 try self.push(@TypeOf(res), res);
             }
-            self.current_frame.instr += 1;
         } else {
             const result = self.unwindCall();
 
@@ -123,6 +123,7 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
     }
 
     try self.push(Frame, self.current_frame);
+
     self.current_frame = .{
         .func = @intCast(u32, func_id),
         .instr = 0,
@@ -133,18 +134,17 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
 pub fn unwindCall(self: *Execution) ?Op.Fixval {
     const func = self.instance.funcs[self.current_frame.func];
 
-    const result = self.pop(Op.Fixval);
+    const result = if (func.result) |_|
+        self.pop(Op.Fixval)
+    else
+        null;
 
     self.stack_top = self.current_frame.stack_begin;
 
     self.current_frame = self.pop(Frame);
     self.dropN(func.locals.len + func.params.len);
 
-    if (func.result) |_| {
-        return result;
-    } else {
-        return null;
-    }
+    return result;
 }
 
 pub fn unwindBlock(self: *Execution, target_idx: u32) void {

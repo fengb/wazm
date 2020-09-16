@@ -227,3 +227,30 @@ test "call with args" {
         std.testing.expectEqual(@as(i32, 24), result.?.I32);
     }
 }
+
+test "call call call" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (param i32) (param i32) (result i32)
+        \\    local.get 0
+        \\    local.get 1
+        \\    i32.add)
+        \\  (func (param i32) (param i32) (result i32)
+        \\    local.get 0
+        \\    local.get 1
+        \\    call 0
+        \\    i32.const 2
+        \\    i32.mul)
+        \\  (export "addDouble" (func 1)))
+    );
+    var module = try Wat.parse(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    var instance = try module.instantiate(std.testing.allocator, struct {});
+    defer instance.deinit();
+
+    {
+        const result = try instance.call("addDouble", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        std.testing.expectEqual(@as(i32, 48), result.?.I32);
+    }
+}
