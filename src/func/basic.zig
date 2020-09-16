@@ -194,3 +194,36 @@ test "f64 math" {
         std.testing.expectEqual(@as(f64, 0.5), result.?.F64);
     }
 }
+
+test "call with args" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (param i32) (param i32) (result i32)
+        \\    local.get 0
+        \\    local.get 1
+        \\    i32.add)
+        \\  (func (param i32) (param i32) (result i32) (local i32) (local i64) (local f64)
+        \\    local.get 0
+        \\    local.get 1
+        \\    i32.add)
+        \\  (export "add" (func 0))
+        \\  (export "addtemp" (func 1)))
+    );
+    var module = try Wat.parse(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    var instance = try module.instantiate(std.testing.allocator, struct {});
+    defer instance.deinit();
+
+    std.testing.expectError(error.TypeSignatureMismatch, instance.call("add", &[0]Instance.Value{}));
+
+    {
+        const result = try instance.call("add", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        std.testing.expectEqual(@as(i32, 24), result.?.I32);
+    }
+
+    {
+        const result = try instance.call("addtemp", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        std.testing.expectEqual(@as(i32, 24), result.?.I32);
+    }
+}

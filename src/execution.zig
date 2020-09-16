@@ -12,11 +12,17 @@ stack_top: usize,
 current_frame: Frame,
 
 pub fn getLocal(self: Execution, idx: usize) Op.Fixval {
-    @panic("TODO");
+    return self.stack[idx + self.localOffset()];
 }
 
-pub fn setLocal(self: Execution, idx: usize, value: anytype) void {
-    @panic("TODO");
+pub fn setLocal(self: Execution, idx: usize, value: Op.Fixval) void {
+    self.stack[idx + self.localOffset()] = value;
+}
+
+fn localOffset(self: Execution) usize {
+    const func = self.instance.funcs[self.current_frame.func];
+    const return_frame = 1;
+    return self.current_frame.stack_begin - return_frame - func.params.len - func.locals.len;
 }
 
 pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
@@ -53,10 +59,11 @@ fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) 
 const Frame = packed struct {
     func: u32,
     instr: u32,
-    top: usize,
+    stack_begin: usize,
     _pad: std.meta.IntType(false, 128 - @bitSizeOf(usize) - 64) = 0,
 
     fn terminus() Frame {
+        // TODO: why does doing @bitCast(Frame) crash the compiler?
         return @bitCast(u128, @as(u128, 0));
     }
 
@@ -119,7 +126,7 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
     self.current_frame = .{
         .func = @intCast(u32, func_id),
         .instr = 0,
-        .top = @intCast(usize, self.stack_top),
+        .stack_begin = @intCast(usize, self.stack_top),
     };
 }
 
@@ -128,7 +135,7 @@ pub fn unwindCall(self: *Execution) ?Op.Fixval {
 
     const result = self.pop(Op.Fixval);
 
-    self.stack_top = self.current_frame.top;
+    self.stack_top = self.current_frame.stack_begin;
 
     self.current_frame = self.pop(Frame);
     self.dropN(func.locals.len + func.params.len);

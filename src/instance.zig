@@ -65,8 +65,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !I
         try funcs.append(.{
             .func_type = type_idx,
             .params = func_type.param_types,
-            // FIXME
-            .locals = &[0]Module.Type.Value{},
+            .locals = body.locals,
             .result = func_type.return_type,
             .instrs = body.code,
         });
