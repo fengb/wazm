@@ -98,7 +98,7 @@ fn Sexpr(comptime Reader: type) type {
                     else => {
                         if (debug_buffer) {
                             self.ctx.debugDump(std.io.getStdOut().writer()) catch {};
-                            std.debug.print("State: {} -- Element: {}\n", .{ self.ctx.current_stack, self.stack_level });
+                            std.debug.print("Unexpected list depth -- Current {} != List {}\n", .{ self.ctx.current_stack, self.stack_level });
                         }
                         unreachable;
                     },
@@ -307,8 +307,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
     errdefer if (debug_buffer) ctx.debugDump(std.io.getStdOut().writer()) catch {};
 
-    var module_buf: [0x10]u8 = undefined;
-    if (!std.mem.eql(u8, try root.obtainAtom(&module_buf), "module")) {
+    var first_buf: [0x10]u8 = undefined;
+    if (!std.mem.eql(u8, try root.obtainAtom(&first_buf), "module")) {
         return error.ExpectModule;
     }
 
@@ -346,6 +346,94 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 });
                 // TODO: this is broken
                 // try command.expectEnd();
+            },
+            swhash.case("type") => {
+                while (try command.nextList()) |args| {
+                    var buf: [0x10]u8 = undefined;
+                    switch (swhash.match(try args.obtainAtom(&buf))) {
+                        swhash.case("func") => {
+                            var params = std.ArrayList(Module.Type.Value).init(&arena.allocator);
+                            var result: ?Module.Type.Value = null;
+
+                            while (try args.nextList()) |pair| {
+                                var loc_buf: [0x10]u8 = undefined;
+                                const loc = try pair.obtainAtom(&loc_buf);
+
+                                var typ_buf: [0x10]u8 = undefined;
+                                const typ: Module.Type.Value = switch (swhash.match(try pair.obtainAtom(&typ_buf))) {
+                                    swhash.case("i32") => .I32,
+                                    swhash.case("i64") => .I64,
+                                    swhash.case("f32") => .F32,
+                                    swhash.case("f64") => .F64,
+                                    else => return error.ExpectedType,
+                                };
+
+                                switch (swhash.match(loc)) {
+                                    swhash.case("param") => try params.append(typ),
+                                    swhash.case("result") => result = typ,
+                                    else => return error.ExpectedLoc,
+                                }
+
+                                try pair.expectEnd();
+                            }
+
+                            try types.append(.{
+                                .form = .Func,
+                                .param_types = params.items,
+                                .return_type = result,
+                            });
+                        },
+                        else => return error.TypeNotRecognized,
+                    }
+                }
+            },
+            swhash.case("import") => {
+                var module_buf: [0x1000]u8 = undefined;
+                const module = try command.obtainAtom(&module_buf);
+                if (module[0] != '"') {
+                    return error.ExpectString;
+                }
+
+                var field_buf: [0x1000]u8 = undefined;
+                const field = try command.obtainAtom(&field_buf);
+                if (field[0] != '"') {
+                    return error.ExpectString;
+                }
+
+                var result = Module.sectionType(.Import){
+                    .module = try arena.allocator.dupe(u8, module[1 .. module.len - 1]),
+                    .field = try arena.allocator.dupe(u8, field[1 .. field.len - 1]),
+                    .kind = undefined,
+                };
+
+                const kind_list = try command.obtainList();
+                var import_type_buf: [0x100]u8 = undefined;
+                switch (swhash.match(try kind_list.obtainAtom(&import_type_buf))) {
+                    swhash.case("func") => {
+                        const type_pair = try kind_list.obtainList();
+
+                        var name_buf: [0x100]u8 = undefined;
+                        if (!std.mem.eql(u8, "type", try type_pair.obtainAtom(&name_buf))) {
+                            @panic("TODO inline function prototypes");
+                        }
+
+                        var index_buf: [0x100]u8 = undefined;
+                        const index = try type_pair.obtainAtom(&index_buf);
+                        try type_pair.expectEnd();
+                        result.kind = .{
+                            .Function = @intToEnum(Module.Index.FuncType, try std.fmt.parseInt(u32, index, 10)),
+                        };
+                    },
+                    swhash.case("table") => @panic("TODO"),
+                    swhash.case("memory") => @panic("TODO"),
+                    swhash.case("global") => @panic("TODO"),
+                    else => return error.ImportNotSupported,
+                }
+
+                try kind_list.expectEnd();
+                try command.expectEnd();
+
+                try imports.append(result);
             },
             swhash.case("func") => {
                 var params = std.ArrayList(Module.Type.Value).init(&arena.allocator);
@@ -459,7 +547,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
                 try pair.expectEnd();
             },
-            else => return error.Fail,
+            else => return error.CommandNotRecognized,
         }
         try command.expectEnd();
     }
@@ -544,5 +632,28 @@ test "parse" {
         std.testing.expectEqualSlices(u8, "foo", module.@"export"[0].field);
         std.testing.expectEqual(Module.ExternalKind.Function, module.@"export"[0].kind);
         std.testing.expectEqual(@as(u32, 0), module.@"export"[0].index);
+    }
+    {
+        var fbs = std.io.fixedBufferStream(
+            \\(module
+            \\  (type (;0;) (func (param i32) (result i32)))
+            \\  (import "env" "fibonacci" (func (type 0))))
+        );
+        var module = try parse(std.testing.allocator, fbs.reader());
+        defer module.deinit();
+
+        std.testing.expectEqual(@as(usize, 1), module.@"type".len);
+        std.testing.expectEqual(Module.Type.Form.Func, module.@"type"[0].form);
+        std.testing.expectEqual(@as(usize, 1), module.@"type"[0].param_types.len);
+        std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].param_types[0]);
+        std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].return_type.?);
+
+        std.testing.expectEqual(@as(usize, 1), module.import.len);
+        std.testing.expectEqualSlices(u8, "env", module.import[0].module);
+        std.testing.expectEqualSlices(u8, "fibonacci", module.import[0].field);
+        std.testing.expectEqual(Module.ExternalKind.Function, module.import[0].kind);
+        std.testing.expectEqual(@intToEnum(Module.Index.FuncType, 0), module.import[0].kind.Function);
+
+        std.testing.expectEqual(@as(usize, 0), module.function.len);
     }
 }

@@ -25,7 +25,13 @@ custom: []struct {
 import: []struct {
     module: []const u8,
     field: []const u8,
-    kind: ExternalKind,
+    kind: union(ExternalKind) {
+        Function: Index.FuncType,
+        // TODO: add these types
+        Table: void,
+        Memory: void,
+        Global: void,
+    },
 },
 
 /// Code=3
@@ -144,7 +150,7 @@ pub const Type = struct {
         F64 = -0x04,
     };
 
-    const Block = enum(i7) {
+    pub const Block = enum(i7) {
         I32 = -0x01,
         I64 = -0x02,
         F32 = -0x03,
@@ -152,11 +158,11 @@ pub const Type = struct {
         Empty = -0x40,
     };
 
-    const Elem = enum(i7) {
+    pub const Elem = enum(i7) {
         Anyfunc = -0x10,
     };
 
-    const Form = enum(i7) {
+    pub const Form = enum(i7) {
         Func = -0x20,
     };
 };
@@ -366,7 +372,14 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     try payload.reader().readNoEof(field_data);
                     i.field = field_data;
 
-                    i.kind = try readVarintEnum(ExternalKind, payload.reader());
+                    // TODO: actually test import parsing
+                    const kind = try readVarintEnum(ExternalKind, payload.reader());
+                    i.kind = switch (kind) {
+                        .Function => .{ .Function = try readVarintEnum(Index.FuncType, payload.reader()) },
+                        .Table => @panic("TODO"),
+                        .Memory => @panic("TODO"),
+                        .Global => @panic("TODO"),
+                    };
                 }
             },
             .Function => {
