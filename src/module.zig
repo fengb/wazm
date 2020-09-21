@@ -187,30 +187,11 @@ pub const Instr = struct {
 const InitExpr = struct {};
 
 fn readVarint(comptime T: type, reader: anytype) !T {
-    const U = @TypeOf(std.math.absCast(@as(T, 0)));
-    const S = std.math.Log2Int(T);
-
-    if (std.meta.bitCount(T) < 8) {
-        const byte = try reader.readByte();
-        return @bitCast(T, try std.math.cast(U, byte));
-    }
-
-    var unsigned_result: U = 0;
-    var shift: S = 0;
-    while (true) : (shift = try std.math.add(S, shift, 7)) {
-        const byte = try reader.readByte();
-        unsigned_result += try std.math.shlExact(U, byte & 0x7F, shift);
-
-        if (byte & 0x80 == 0) {
-            if (U == T) {
-                return unsigned_result;
-            } else if (byte & 0x40 != 0 and !@addWithOverflow(S, shift, 6, &shift)) {
-                return @bitCast(T, unsigned_result) | @as(T, -1) << shift;
-            } else {
-                return @bitCast(T, unsigned_result);
-            }
-        }
-    }
+    const readFn = if (@typeInfo(T).Int.is_signed)
+        std.debug.leb.readILEB128
+    else
+        std.debug.leb.readULEB128;
+    return try readFn(T, reader);
 }
 
 test "readVarint" {
