@@ -3,33 +3,7 @@ const Module = @import("module.zig");
 const Op = @import("op.zig");
 const Execution = @import("execution.zig");
 
-const Instance = @This();
-
-module: *Module,
-memory: []u8,
-allocator: *std.mem.Allocator,
-exports: std.StringHashMap(Export),
-funcs: []Func,
-
-// TODO: revisit if wasm ever becomes multi-threaded
-mutex: std.Mutex,
-
-pub const Export = union(enum) {
-    Func: usize,
-    Table: usize,
-    Memory: usize,
-    Global: usize,
-};
-
-pub const Func = struct {
-    func_type: usize,
-    params: []Module.Type.Value,
-    locals: []Module.Type.Value,
-    result: ?Module.Type.Value,
-    instrs: []Module.Instr,
-};
-
-pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !Instance {
+pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: type) !Instance(Imports) {
     //    var import_funcs = try std.ArrayList(Instance.ImportFunc).initCapacity(allocator, module.imports.len);
     //    errdefer import_funcs.deinit();
     //    for (module.imports) |import| cont: {
@@ -71,7 +45,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !I
         });
     }
 
-    return Instance{
+    return Instance(Imports){
         .module = module,
         .mutex = std.Mutex{},
         .memory = try allocator.alloc(u8, 65536),
@@ -81,53 +55,68 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, imports: anytype) !I
     };
 }
 
-pub fn deinit(self: *Instance) void {
-    self.allocator.free(self.funcs);
-    self.allocator.free(self.memory);
-    self.exports.deinit();
-    self.* = undefined;
-}
+pub fn Instance(comptime Imports: type) type {
+    return struct {
+        const Self = @This();
 
-pub fn call(self: *Instance, name: []const u8, params: []const Value) !?Value {
-    const lock = self.mutex.acquire();
-    defer lock.release();
+        module: *Module,
+        memory: []u8,
+        allocator: *std.mem.Allocator,
+        exports: std.StringHashMap(Export),
+        funcs: []Func,
 
-    const exp = self.exports.get(name) orelse return error.ExportNotFound;
-    if (exp != .Func) {
-        return error.ExportNotAFunction;
-    }
+        // TODO: revisit if wasm ever becomes multi-threaded
+        mutex: std.Mutex,
 
-    const func_id = exp.Func;
-    const func = self.module.function[func_id];
-    const func_type = self.module.@"type"[@enumToInt(func)];
-    if (params.len != func_type.param_types.len) {
-        return error.TypeSignatureMismatch;
-    }
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.funcs);
+            self.allocator.free(self.memory);
+            self.exports.deinit();
+            self.* = undefined;
+        }
 
-    var converted_params: [20]Op.Fixval = undefined;
-    for (params) |param, i| {
-        if (param != func_type.param_types[i]) return error.TypeSignatureMismatch;
+        pub fn call(self: *Self, name: []const u8, params: []const Value) !?Value {
+            const lock = self.mutex.acquire();
+            defer lock.release();
 
-        converted_params[i] = switch (param) {
-            .I32 => |data| .{ .I32 = data },
-            .I64 => |data| .{ .I64 = data },
-            .F32 => |data| .{ .F32 = data },
-            .F64 => |data| .{ .F64 = data },
-        };
-    }
+            const exp = self.exports.get(name) orelse return error.ExportNotFound;
+            if (exp != .Func) {
+                return error.ExportNotAFunction;
+            }
 
-    var stack: [1 << 10]Op.Fixval = undefined;
-    const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
-    if (result) |res| {
-        return switch (func_type.return_type.?) {
-            .I32 => Value{ .I32 = res.I32 },
-            .I64 => Value{ .I64 = res.I64 },
-            .F32 => Value{ .F32 = res.F32 },
-            .F64 => Value{ .F64 = res.F64 },
-        };
-    } else {
-        return null;
-    }
+            const func_id = exp.Func;
+            const func = self.module.function[func_id];
+            const func_type = self.module.@"type"[@enumToInt(func)];
+            if (params.len != func_type.param_types.len) {
+                return error.TypeSignatureMismatch;
+            }
+
+            var converted_params: [20]Op.Fixval = undefined;
+            for (params) |param, i| {
+                if (param != func_type.param_types[i]) return error.TypeSignatureMismatch;
+
+                converted_params[i] = switch (param) {
+                    .I32 => |data| .{ .I32 = data },
+                    .I64 => |data| .{ .I64 = data },
+                    .F32 => |data| .{ .F32 = data },
+                    .F64 => |data| .{ .F64 = data },
+                };
+            }
+
+            var stack: [1 << 10]Op.Fixval = undefined;
+            const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
+            if (result) |res| {
+                return switch (func_type.return_type.?) {
+                    .I32 => Value{ .I32 = res.I32 },
+                    .I64 => Value{ .I64 = res.I64 },
+                    .F32 => Value{ .F32 = res.F32 },
+                    .F64 => Value{ .F64 = res.F64 },
+                };
+            } else {
+                return null;
+            }
+        }
+    };
 }
 
 pub const Value = union(Module.Type.Value) {
@@ -137,6 +126,21 @@ pub const Value = union(Module.Type.Value) {
     F64: f64,
 };
 
+pub const Export = union(enum) {
+    Func: usize,
+    Table: usize,
+    Memory: usize,
+    Global: usize,
+};
+
+pub const Func = struct {
+    func_type: usize,
+    params: []Module.Type.Value,
+    locals: []Module.Type.Value,
+    result: ?Module.Type.Value,
+    instrs: []Module.Instr,
+};
+
 test "" {
-    _ = Instance.call;
+    _ = Instance(struct {}).call;
 }
