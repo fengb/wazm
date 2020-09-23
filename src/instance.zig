@@ -136,14 +136,49 @@ pub fn Instance(comptime Imports: type) type {
             }
         }
 
-        pub fn importCall(self: *Self, module: []const u8, func: []const u8, params: []const Op.Fixval) ?Op.Fixval {
+        fn ArgsTuple(comptime Fn: type) type {
+            const function_info = @typeInfo(Fn).Fn;
+            var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
+            inline for (function_info.args) |arg, i| {
+                @setEvalBranchQuota(10_000);
+                var num_buf: [128]u8 = undefined;
+                argument_field_list[i] = std.builtin.TypeInfo.StructField{
+                    .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
+                    .field_type = arg.arg_type.?,
+                    .default_value = @as(?(arg.arg_type.?), null),
+                    .is_comptime = false,
+                };
+            }
+
+            return @Type(std.builtin.TypeInfo{
+                .Struct = std.builtin.TypeInfo.Struct{
+                    .is_tuple = true,
+                    .layout = .Auto,
+                    .decls = &[_]std.builtin.TypeInfo.Declaration{},
+                    .fields = &argument_field_list,
+                },
+            });
+        }
+
+        pub fn importCall(self: *Self, module: []const u8, field: []const u8, params: []const Op.Fixval) ?Op.Fixval {
             inline for (std.meta.declarations(Imports)) |decl| {
                 if (std.mem.eql(u8, module, decl.name)) {
                     inline for (std.meta.declarations(decl.data.Type)) |decl2| {
-                        if (std.mem.eql(u8, func, decl2.name)) {
-                            const f = @field(decl.data.Type, decl2.name);
-                            // TODO: coerce the arguments correctly
-                            const result = @call(.{}, f, .{params[0].I32});
+                        if (std.mem.eql(u8, field, decl2.name)) {
+                            const func = @field(decl.data.Type, decl2.name);
+                            var args: ArgsTuple(@TypeOf(func)) = undefined;
+                            inline for (std.meta.fields(@TypeOf(args))) |f, i| {
+                                switch (f.field_type) {
+                                    i32 => args[i] = params[i].I32,
+                                    i64 => args[i] = params[i].I64,
+                                    u32 => args[i] = params[i].U32,
+                                    u64 => args[i] = params[i].U64,
+                                    f32 => args[i] = params[i].F32,
+                                    f64 => args[i] = params[i].F64,
+                                    else => @panic("Signature not supported"),
+                                }
+                            }
+                            const result = @call(.{}, func, args);
                             return switch (@TypeOf(result)) {
                                 i32 => Op.Fixval{ .I32 = result },
                                 i64 => Op.Fixval{ .I64 = result },
