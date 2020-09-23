@@ -9,4 +9,5 @@ test "" {
     _ = Op;
     _ = Wat;
     _ = @import("func/basic.zig");
+    _ = @import("func/imports.zig");
 }

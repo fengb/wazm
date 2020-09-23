@@ -17,6 +17,10 @@ pub const Context = struct {
         return self.stack[idx + self.localOffset()];
     }
 
+    pub fn getLocals(self: Context, idx: usize, len: usize) []Op.Fixval {
+        return self.stack[idx + self.localOffset() ..][0..len];
+    }
+
     pub fn setLocal(self: Context, idx: usize, value: Op.Fixval) void {
         self.stack[idx + self.localOffset()] = value;
     }
@@ -60,7 +64,7 @@ pub const Context = struct {
 
     pub fn initCall(self: *Context, func_id: usize) !void {
         const func = self.funcs[func_id];
-        // TODO: validate params on the callstack
+        // TODO: assert params on the callstack are correct
         for (func.locals) |local| {
             try self.push(u128, 0);
         }
@@ -85,7 +89,7 @@ pub const Context = struct {
         self.stack_top = self.current_frame.stack_begin;
 
         self.current_frame = self.pop(Frame);
-        self.dropN(func.locals.len + func.params.len);
+        self.dropN(func.params.len + func.locals.len);
 
         return result;
     }
@@ -98,7 +102,7 @@ pub const Context = struct {
         // TODO: test this...
         while (true) {
             self.current_frame.instr += 1;
-            const instr = func.instrs[self.current_frame.instr];
+            const instr = func.kind.instrs[self.current_frame.instr];
 
             stack_change -= @intCast(isize, instr.op.pop.len);
             stack_change += @intCast(isize, @boolToInt(instr.op.push != null));
@@ -193,8 +197,26 @@ pub fn run(inst: anytype, stack: []Op.Fixval, func_id: usize, params: []Op.Fixva
 
     while (true) {
         const func = ctx.funcs[ctx.current_frame.func];
-        if (ctx.current_frame.instr < func.instrs.len) {
-            const instr = func.instrs[ctx.current_frame.instr];
+        // TODO: investigate imported calling another imported
+        if (ctx.current_frame.instr == 0 and func.kind == .imported) {
+            const result = inst.importCall(
+                func.kind.imported.module,
+                func.kind.imported.field,
+                ctx.getLocals(0, func.params.len),
+            );
+
+            _ = ctx.unwindCall();
+
+            if (ctx.current_frame.isTerminus()) {
+                std.debug.assert(ctx.stack_top == 0);
+                return result;
+            } else {
+                if (result) |res| {
+                    ctx.push(Op.Fixval, res) catch unreachable;
+                }
+            }
+        } else if (ctx.current_frame.instr < func.kind.instrs.len) {
+            const instr = func.kind.instrs[ctx.current_frame.instr];
             ctx.current_frame.instr += 1;
 
             ctx.stack_top -= instr.op.pop.len;

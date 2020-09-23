@@ -33,15 +33,35 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: ty
 
     var funcs = std.ArrayList(Func).init(allocator);
     errdefer funcs.deinit();
+
+    for (module.import) |import, i| {
+        if (import.kind == .Function) {
+            const type_idx = @enumToInt(import.kind.Function);
+            const func_type = module.@"type"[type_idx];
+            try funcs.append(.{
+                .func_type = type_idx,
+                .params = func_type.param_types,
+                .result = func_type.return_type,
+                .locals = &[0]Module.Type.Value{},
+                .kind = .{
+                    .imported = .{
+                        .module = import.module,
+                        .field = import.field,
+                    },
+                },
+            });
+        }
+    }
+
     for (module.code) |body, i| {
         const type_idx = @enumToInt(module.function[i]);
         const func_type = module.@"type"[type_idx];
         try funcs.append(.{
             .func_type = type_idx,
             .params = func_type.param_types,
-            .locals = body.locals,
             .result = func_type.return_type,
-            .instrs = body.code,
+            .locals = body.locals,
+            .kind = .{ .instrs = body.code },
         });
     }
 
@@ -85,15 +105,14 @@ pub fn Instance(comptime Imports: type) type {
             }
 
             const func_id = exp.Func;
-            const func = self.module.function[func_id];
-            const func_type = self.module.@"type"[@enumToInt(func)];
-            if (params.len != func_type.param_types.len) {
+            const func = self.funcs[func_id];
+            if (params.len != func.params.len) {
                 return error.TypeSignatureMismatch;
             }
 
             var converted_params: [20]Op.Fixval = undefined;
             for (params) |param, i| {
-                if (param != func_type.param_types[i]) return error.TypeSignatureMismatch;
+                if (param != func.params[i]) return error.TypeSignatureMismatch;
 
                 converted_params[i] = switch (param) {
                     .I32 => |data| .{ .I32 = data },
@@ -106,7 +125,7 @@ pub fn Instance(comptime Imports: type) type {
             var stack: [1 << 10]Op.Fixval = undefined;
             const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
             if (result) |res| {
-                return switch (func_type.return_type.?) {
+                return switch (func.result.?) {
                     .I32 => Value{ .I32 = res.I32 },
                     .I64 => Value{ .I64 = res.I64 },
                     .F32 => Value{ .F32 = res.F32 },
@@ -115,6 +134,33 @@ pub fn Instance(comptime Imports: type) type {
             } else {
                 return null;
             }
+        }
+
+        pub fn importCall(self: *Self, module: []const u8, func: []const u8, params: []const Op.Fixval) ?Op.Fixval {
+            inline for (std.meta.declarations(Imports)) |decl| {
+                if (std.mem.eql(u8, module, decl.name)) {
+                    inline for (std.meta.declarations(decl.data.Type)) |decl2| {
+                        if (std.mem.eql(u8, func, decl2.name)) {
+                            const f = @field(decl.data.Type, decl2.name);
+                            // TODO: coerce the arguments correctly
+                            const result = @call(.{}, f, .{params[0].I32});
+                            return switch (@TypeOf(result)) {
+                                i32 => Op.Fixval{ .I32 = result },
+                                i64 => Op.Fixval{ .I64 = result },
+                                u32 => Op.Fixval{ .U32 = result },
+                                u64 => Op.Fixval{ .U64 = result },
+                                f32 => Op.Fixval{ .F32 = result },
+                                f64 => Op.Fixval{ .F64 = result },
+                                else => @panic("Signature not supported"),
+                            };
+                        }
+                    }
+
+                    @panic("Func not found");
+                }
+            }
+
+            @panic("Module not found");
         }
     };
 }
@@ -136,9 +182,15 @@ pub const Export = union(enum) {
 pub const Func = struct {
     func_type: usize,
     params: []Module.Type.Value,
-    locals: []Module.Type.Value,
     result: ?Module.Type.Value,
-    instrs: []Module.Instr,
+    locals: []Module.Type.Value,
+    kind: union(enum) {
+        imported: struct {
+            module: []const u8,
+            field: []const u8,
+        },
+        instrs: []Module.Instr,
+    },
 };
 
 test "" {
