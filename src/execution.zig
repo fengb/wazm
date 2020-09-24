@@ -10,8 +10,7 @@ pub const Context = struct {
 
     stack: []Op.Fixval,
     stack_top: usize,
-
-    current_frame: Frame,
+    current_frame: Frame = Frame.terminus(),
 
     pub fn getLocal(self: Context, idx: usize) Op.Fixval {
         return self.stack[idx + self.localOffset()];
@@ -74,7 +73,7 @@ pub const Context = struct {
         self.current_frame = .{
             .func = @intCast(u32, func_id),
             .instr = 0,
-            .stack_begin = @intCast(usize, self.stack_top),
+            .stack_begin = @intCast(u32, self.stack_top),
         };
     }
 
@@ -140,103 +139,35 @@ pub const Context = struct {
         }
     }
 
-    fn dropN(self: *Context, size: usize) void {
+    pub fn dropN(self: *Context, size: usize) void {
         std.debug.assert(self.stack_top + size <= self.stack.len);
         self.stack_top -= size;
     }
 
-    fn pop(self: *Context, comptime T: type) T {
+    pub fn pop(self: *Context, comptime T: type) T {
         std.debug.assert(@sizeOf(T) == 16);
         self.stack_top -= 1;
         return @bitCast(T, self.stack[self.stack_top]);
     }
 
-    fn push(self: *Context, comptime T: type, value: T) !void {
+    pub fn push(self: *Context, comptime T: type, value: T) !void {
         std.debug.assert(@sizeOf(T) == 16);
         self.stack[self.stack_top] = @bitCast(Op.Fixval, value);
         self.stack_top = try std.math.add(usize, self.stack_top, 1);
     }
 };
 
-const Frame = packed struct {
+const Frame = extern struct {
     func: u32,
     instr: u32,
-    stack_begin: usize,
-    _pad: std.meta.IntType(false, 128 - @bitSizeOf(usize) - 64) = 0,
+    stack_begin: u32,
+    _pad: u32 = undefined,
 
-    fn terminus() Frame {
-        // TODO: why does doing @bitCast(Frame) crash the compiler?
-        return @bitCast(u128, @as(u128, 0));
+    pub fn terminus() Frame {
+        return @bitCast(Frame, @as(u128, 0));
     }
 
-    fn isTerminus(self: Frame) bool {
+    pub fn isTerminus(self: Frame) bool {
         return @bitCast(u128, self) == 0;
     }
 };
-
-pub fn run(inst: anytype, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
-    var ctx = Context{
-        .memory = inst.memory,
-        .funcs = inst.funcs,
-        .allocator = inst.allocator,
-
-        .stack = stack,
-        .stack_top = 0,
-        .current_frame = Frame.terminus(),
-    };
-    // Context may have grown the memory, so we need to copy the new memory in
-    // TODO: rearchitect so this copying is unnecessary
-    defer inst.memory = ctx.memory;
-
-    // initCall assumes the params are already pushed onto the stack
-    for (params) |param| {
-        try ctx.push(Op.Fixval, param);
-    }
-
-    try ctx.initCall(func_id);
-
-    while (true) {
-        const func = ctx.funcs[ctx.current_frame.func];
-        // TODO: investigate imported calling another imported
-        if (ctx.current_frame.instr == 0 and func.kind == .imported) {
-            const result = inst.importCall(
-                func.kind.imported.module,
-                func.kind.imported.field,
-                ctx.getLocals(0, func.params.len),
-            );
-
-            _ = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
-            }
-        } else if (ctx.current_frame.instr < func.kind.instrs.len) {
-            const instr = func.kind.instrs[ctx.current_frame.instr];
-            ctx.current_frame.instr += 1;
-
-            ctx.stack_top -= instr.op.pop.len;
-            const pop_array: [*]Op.Fixval = ctx.stack.ptr + ctx.stack_top;
-
-            const result = try instr.op.step(&ctx, instr.arg, pop_array);
-            if (result) |res| {
-                try ctx.push(@TypeOf(res), res);
-            }
-        } else {
-            const result = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
-            }
-        }
-    }
-}

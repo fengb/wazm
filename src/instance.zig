@@ -1,4 +1,6 @@
 const std = @import("std");
+
+const util = @import("util.zig");
 const Module = @import("module.zig");
 const Op = @import("op.zig");
 const Execution = @import("execution.zig");
@@ -123,7 +125,7 @@ pub fn Instance(comptime Imports: type) type {
             }
 
             var stack: [1 << 10]Op.Fixval = undefined;
-            const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
+            const result = try self.run(&stack, func_id, converted_params[0..params.len]);
             if (result) |res| {
                 return switch (func.result.?) {
                     .I32 => Value{ .I32 = res.I32 },
@@ -136,37 +138,79 @@ pub fn Instance(comptime Imports: type) type {
             }
         }
 
-        fn ArgsTuple(comptime Fn: type) type {
-            const function_info = @typeInfo(Fn).Fn;
-            var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
-            inline for (function_info.args) |arg, i| {
-                @setEvalBranchQuota(10_000);
-                var num_buf: [128]u8 = undefined;
-                argument_field_list[i] = std.builtin.TypeInfo.StructField{
-                    .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
-                    .field_type = arg.arg_type.?,
-                    .default_value = @as(?(arg.arg_type.?), null),
-                    .is_comptime = false,
-                };
+        fn run(self: *Self, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
+            var ctx = Execution.Context{
+                .memory = self.memory,
+                .funcs = self.funcs,
+                .allocator = self.allocator,
+
+                .stack = stack,
+                .stack_top = 0,
+            };
+            // Context may have grown the memory, so we need to copy the new memory in
+            // TODO: rearchitect so this copying is unnecessary
+            defer self.memory = ctx.memory;
+
+            // initCall assumes the params are already pushed onto the stack
+            for (params) |param| {
+                try ctx.push(Op.Fixval, param);
             }
 
-            return @Type(std.builtin.TypeInfo{
-                .Struct = std.builtin.TypeInfo.Struct{
-                    .is_tuple = true,
-                    .layout = .Auto,
-                    .decls = &[_]std.builtin.TypeInfo.Declaration{},
-                    .fields = &argument_field_list,
-                },
-            });
+            try ctx.initCall(func_id);
+
+            while (true) {
+                const func = ctx.funcs[ctx.current_frame.func];
+                // TODO: investigate imported calling another imported
+                if (ctx.current_frame.instr == 0 and func.kind == .imported) {
+                    const result = self.importCall(
+                        func.kind.imported.module,
+                        func.kind.imported.field,
+                        ctx.getLocals(0, func.params.len),
+                    );
+
+                    _ = ctx.unwindCall();
+
+                    if (ctx.current_frame.isTerminus()) {
+                        std.debug.assert(ctx.stack_top == 0);
+                        return result;
+                    } else {
+                        if (result) |res| {
+                            ctx.push(Op.Fixval, res) catch unreachable;
+                        }
+                    }
+                } else if (ctx.current_frame.instr < func.kind.instrs.len) {
+                    const instr = func.kind.instrs[ctx.current_frame.instr];
+                    ctx.current_frame.instr += 1;
+
+                    ctx.stack_top -= instr.op.pop.len;
+                    const pop_array: [*]Op.Fixval = ctx.stack.ptr + ctx.stack_top;
+
+                    const result = try instr.op.step(&ctx, instr.arg, pop_array);
+                    if (result) |res| {
+                        try ctx.push(@TypeOf(res), res);
+                    }
+                } else {
+                    const result = ctx.unwindCall();
+
+                    if (ctx.current_frame.isTerminus()) {
+                        std.debug.assert(ctx.stack_top == 0);
+                        return result;
+                    } else {
+                        if (result) |res| {
+                            ctx.push(Op.Fixval, res) catch unreachable;
+                        }
+                    }
+                }
+            }
         }
 
-        pub fn importCall(self: *Self, module: []const u8, field: []const u8, params: []const Op.Fixval) ?Op.Fixval {
+        fn importCall(self: *Self, module: []const u8, field: []const u8, params: []const Op.Fixval) ?Op.Fixval {
             inline for (std.meta.declarations(Imports)) |decl| {
                 if (std.mem.eql(u8, module, decl.name)) {
                     inline for (std.meta.declarations(decl.data.Type)) |decl2| {
                         if (std.mem.eql(u8, field, decl2.name)) {
                             const func = @field(decl.data.Type, decl2.name);
-                            var args: ArgsTuple(@TypeOf(func)) = undefined;
+                            var args: util.ArgsTuple(@TypeOf(func)) = undefined;
                             inline for (std.meta.fields(@TypeOf(args))) |f, i| {
                                 switch (f.field_type) {
                                     i32 => args[i] = params[i].I32,
