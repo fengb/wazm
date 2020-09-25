@@ -211,15 +211,20 @@ pub fn Instance(comptime Imports: type) type {
                     inline for (std.meta.declarations(decl.data.Type)) |decl2| {
                         if (std.mem.eql(u8, field, decl2.name)) {
                             const func = @field(decl.data.Type, decl2.name);
+
                             var args: util.ArgsTuple(@TypeOf(func)) = undefined;
+                            std.debug.assert(@TypeOf(args[0]) == *Execution.Context);
+                            args[0] = ctx;
                             inline for (std.meta.fields(@TypeOf(args))) |f, i| {
+                                if (i == 0) continue;
+
                                 switch (f.field_type) {
-                                    i32 => args[i] = params[i].I32,
-                                    i64 => args[i] = params[i].I64,
-                                    u32 => args[i] = params[i].U32,
-                                    u64 => args[i] = params[i].U64,
-                                    f32 => args[i] = params[i].F32,
-                                    f64 => args[i] = params[i].F64,
+                                    i32 => args[i] = params[i - 1].I32,
+                                    i64 => args[i] = params[i - 1].I64,
+                                    u32 => args[i] = params[i - 1].U32,
+                                    u64 => args[i] = params[i - 1].U64,
+                                    f32 => args[i] = params[i - 1].F32,
+                                    f64 => args[i] = params[i - 1].F64,
                                     else => @panic("Signature not supported"),
                                 }
                             }
