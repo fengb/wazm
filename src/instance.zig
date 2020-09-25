@@ -97,7 +97,7 @@ pub fn Instance(comptime Imports: type) type {
             self.* = undefined;
         }
 
-        pub fn call(self: *Self, name: []const u8, params: []const Value) !?Value {
+        pub fn call(self: *Self, name: []const u8, params: anytype) !?Value {
             const lock = self.mutex.acquire();
             defer lock.release();
 
@@ -112,15 +112,25 @@ pub fn Instance(comptime Imports: type) type {
                 return error.TypeSignatureMismatch;
             }
 
-            var converted_params: [20]Op.Fixval = undefined;
-            for (params) |param, i| {
-                if (param != func.params[i]) return error.TypeSignatureMismatch;
+            var converted_params: [params.len]Op.Fixval = undefined;
+            inline for ([_]void{{}} ** params.len) |_, i| {
+                const param_type: Module.Type.Value = switch (@TypeOf(params[i])) {
+                    i32, u32 => .I32,
+                    i64, u64 => .I64,
+                    f32 => .F32,
+                    f64 => .F64,
+                    else => @compileError("Unsupported type"),
+                };
+                if (param_type != func.params[i]) return error.TypeSignatureMismatch;
 
-                converted_params[i] = switch (param) {
-                    .I32 => |data| .{ .I32 = data },
-                    .I64 => |data| .{ .I64 = data },
-                    .F32 => |data| .{ .F32 = data },
-                    .F64 => |data| .{ .F64 = data },
+                converted_params[i] = switch (@TypeOf(params[i])) {
+                    i32 => .{ .I32 = params[i] },
+                    i64 => .{ .I64 = params[i] },
+                    u32 => .{ .U32 = params[i] },
+                    u64 => .{ .U64 = params[i] },
+                    f32 => .{ .F32 = params[i] },
+                    f64 => .{ .F64 = params[i] },
+                    else => @compileError("Unsupported type"),
                 };
             }
 

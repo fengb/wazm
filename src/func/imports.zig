@@ -24,11 +24,11 @@ test "import" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("run", &[_]Instance.Value{.{ .I32 = 1 }});
+        const result = try instance.call("run", .{@as(i32, 1)});
         std.testing.expectEqual(@as(i32, 2), result.?.I32);
     }
     {
-        const result = try instance.call("run", &[_]Instance.Value{.{ .I32 = 42 }});
+        const result = try instance.call("run", .{@as(i32, 42)});
         std.testing.expectEqual(@as(i32, 43), result.?.I32);
     }
 }
@@ -59,12 +59,12 @@ test "import multiple" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("add", &[_]Instance.Value{ .{ .I32 = 2 }, .{ .I32 = 3 } });
+        const result = try instance.call("add", .{ @as(i32, 2), @as(i32, 3) });
         std.testing.expectEqual(@as(i32, 5), result.?.I32);
     }
 
     {
-        const result = try instance.call("mul", &[_]Instance.Value{ .{ .I32 = 2 }, .{ .I32 = 3 } });
+        const result = try instance.call("mul", .{ @as(i32, 2), @as(i32, 3) });
         std.testing.expectEqual(@as(i32, 6), result.?.I32);
     }
 }

@@ -34,19 +34,19 @@ test "i32 math" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("add", &[0]Instance.Value{});
+        const result = try instance.call("add", .{});
         std.testing.expectEqual(@as(i32, 42), result.?.I32);
     }
     {
-        const result = try instance.call("sub", &[0]Instance.Value{});
+        const result = try instance.call("sub", .{});
         std.testing.expectEqual(@as(i32, 38), result.?.I32);
     }
     {
-        const result = try instance.call("mul", &[0]Instance.Value{});
+        const result = try instance.call("mul", .{});
         std.testing.expectEqual(@as(i32, 80), result.?.I32);
     }
     {
-        const result = try instance.call("div", &[0]Instance.Value{});
+        const result = try instance.call("div", .{});
         std.testing.expectEqual(@as(i32, 20), result.?.I32);
     }
 }
@@ -82,19 +82,19 @@ test "i64 math" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("add", &[0]Instance.Value{});
+        const result = try instance.call("add", .{});
         std.testing.expectEqual(@as(i64, 42), result.?.I64);
     }
     {
-        const result = try instance.call("sub", &[0]Instance.Value{});
+        const result = try instance.call("sub", .{});
         std.testing.expectEqual(@as(i64, 38), result.?.I64);
     }
     {
-        const result = try instance.call("mul", &[0]Instance.Value{});
+        const result = try instance.call("mul", .{});
         std.testing.expectEqual(@as(i64, 80), result.?.I64);
     }
     {
-        const result = try instance.call("div", &[0]Instance.Value{});
+        const result = try instance.call("div", .{});
         std.testing.expectEqual(@as(i64, 20), result.?.I64);
     }
 }
@@ -130,19 +130,19 @@ test "f32 math" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("add", &[0]Instance.Value{});
+        const result = try instance.call("add", .{});
         std.testing.expectEqual(@as(f32, 42), result.?.F32);
     }
     {
-        const result = try instance.call("sub", &[0]Instance.Value{});
+        const result = try instance.call("sub", .{});
         std.testing.expectEqual(@as(f32, 38), result.?.F32);
     }
     {
-        const result = try instance.call("mul", &[0]Instance.Value{});
+        const result = try instance.call("mul", .{});
         std.testing.expectEqual(@as(f32, 80), result.?.F32);
     }
     {
-        const result = try instance.call("div", &[0]Instance.Value{});
+        const result = try instance.call("div", .{});
         std.testing.expectEqual(@as(f32, 20), result.?.F32);
     }
 }
@@ -178,19 +178,19 @@ test "f64 math" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("add", &[0]Instance.Value{});
+        const result = try instance.call("add", .{});
         std.testing.expectEqual(@as(f64, 3), result.?.F64);
     }
     {
-        const result = try instance.call("sub", &[0]Instance.Value{});
+        const result = try instance.call("sub", .{});
         std.testing.expectEqual(@as(f64, -1), result.?.F64);
     }
     {
-        const result = try instance.call("mul", &[0]Instance.Value{});
+        const result = try instance.call("mul", .{});
         std.testing.expectEqual(@as(f64, 2), result.?.F64);
     }
     {
-        const result = try instance.call("div", &[0]Instance.Value{});
+        const result = try instance.call("div", .{});
         std.testing.expectEqual(@as(f64, 0.5), result.?.F64);
     }
 }
@@ -218,12 +218,12 @@ test "call with args" {
     std.testing.expectError(error.TypeSignatureMismatch, instance.call("add", &[0]Instance.Value{}));
 
     {
-        const result = try instance.call("add", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        const result = try instance.call("add", .{ @as(i32, 16), @as(i32, 8) });
         std.testing.expectEqual(@as(i32, 24), result.?.I32);
     }
 
     {
-        const result = try instance.call("addtemp", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        const result = try instance.call("addtemp", .{ @as(i32, 16), @as(i32, 8) });
         std.testing.expectEqual(@as(i32, 24), result.?.I32);
     }
 }
@@ -250,7 +250,7 @@ test "call call call" {
     defer instance.deinit();
 
     {
-        const result = try instance.call("addDouble", &[_]Instance.Value{ .{ .I32 = 16 }, .{ .I32 = 8 } });
+        const result = try instance.call("addDouble", .{ @as(i32, 16), @as(i32, 8) });
         std.testing.expectEqual(@as(i32, 48), result.?.I32);
     }
 }
