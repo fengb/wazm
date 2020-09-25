@@ -222,7 +222,8 @@ pub fn Instance(comptime Imports: type) type {
                                     else => @panic("Signature not supported"),
                                 }
                             }
-                            const result = @call(.{}, func, args);
+                            comptime const opts = std.builtin.CallOptions{};
+                            const result = @call(opts, func, args);
                             return switch (@TypeOf(result)) {
                                 i32 => Op.Fixval{ .I32 = result },
                                 i64 => Op.Fixval{ .I64 = result },
