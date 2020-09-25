@@ -163,6 +163,7 @@ pub fn Instance(comptime Imports: type) type {
                 // TODO: investigate imported calling another imported
                 if (ctx.current_frame.instr == 0 and func.kind == .imported) {
                     const result = self.importCall(
+                        &ctx,
                         func.kind.imported.module,
                         func.kind.imported.field,
                         ctx.getLocals(0, func.params.len),
@@ -204,7 +205,7 @@ pub fn Instance(comptime Imports: type) type {
             }
         }
 
-        fn importCall(self: *Self, module: []const u8, field: []const u8, params: []const Op.Fixval) ?Op.Fixval {
+        fn importCall(self: *Self, ctx: *Execution.Context, module: []const u8, field: []const u8, params: []const Op.Fixval) ?Op.Fixval {
             inline for (std.meta.declarations(Imports)) |decl| {
                 if (std.mem.eql(u8, module, decl.name)) {
                     inline for (std.meta.declarations(decl.data.Type)) |decl2| {
@@ -222,8 +223,13 @@ pub fn Instance(comptime Imports: type) type {
                                     else => @panic("Signature not supported"),
                                 }
                             }
-                            comptime const opts = std.builtin.CallOptions{};
-                            const result = @call(opts, func, args);
+                            const fixval_len = std.math.divCeil(comptime_int, @sizeOf(@Frame(func)), @sizeOf(Op.Fixval)) catch unreachable;
+                            const frame_loc = ctx.pushOpaque(fixval_len) catch unreachable;
+                            const frame = @ptrCast(*@Frame(func), frame_loc);
+
+                            comptime const opts = std.builtin.CallOptions{ .modifier = .async_kw };
+                            frame.* = @call(opts, func, args);
+                            const result = nosuspend await frame;
                             return switch (@TypeOf(result)) {
                                 i32 => Op.Fixval{ .I32 = result },
                                 i64 => Op.Fixval{ .I64 = result },

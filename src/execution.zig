@@ -155,6 +155,12 @@ pub const Context = struct {
         self.stack[self.stack_top] = @bitCast(Op.Fixval, value);
         self.stack_top = try std.math.add(usize, self.stack_top, 1);
     }
+
+    pub fn pushOpaque(self: *Context, comptime len: usize) !*[len]Op.Fixval {
+        const start = self.stack_top;
+        self.stack_top = try std.math.add(usize, len, 1);
+        return self.stack[start..][0..len];
+    }
 };
 
 const Frame = extern struct {
