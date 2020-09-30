@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const util = @import("util.zig");
 const Module = @import("module.zig");
 const Op = @import("op.zig");
 const Execution = @import("execution.zig");
@@ -222,7 +221,7 @@ pub fn Instance(comptime Imports: type) type {
                         if (std.mem.eql(u8, field, decl2.name)) {
                             const func = @field(decl.data.Type, decl2.name);
 
-                            var args: util.ArgsTuple(@TypeOf(func)) = undefined;
+                            var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
                             std.debug.assert(@TypeOf(args[0]) == *Execution.Context);
                             args[0] = ctx;
                             inline for (std.meta.fields(@TypeOf(args))) |f, i| {
