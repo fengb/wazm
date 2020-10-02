@@ -35,7 +35,9 @@ import: []struct {
 },
 
 /// Code=3
-function: []Index.FuncType,
+function: []struct {
+    type_idx: Index.FuncType,
+},
 
 /// Code=4
 table: []struct {
@@ -378,7 +380,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.function, count)) |*f| {
                     const index = try readVarint(u32, payload.reader());
-                    f.* = @intToEnum(Index.FuncType, index);
+                    f.type_idx = @intToEnum(Index.FuncType, index);
                 }
             },
             .Table => {

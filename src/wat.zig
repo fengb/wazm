@@ -504,7 +504,9 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     });
                 }
 
-                try functions.append(@intToEnum(Module.Index.FuncType, @intCast(u32, types.items.len)));
+                try functions.append(.{
+                    .type_idx = @intToEnum(Module.Index.FuncType, @intCast(u32, types.items.len)),
+                });
 
                 try codes.append(.{
                     .locals = locals.items,

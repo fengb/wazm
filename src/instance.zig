@@ -55,7 +55,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: ty
     }
 
     for (module.code) |body, i| {
-        const type_idx = @enumToInt(module.function[i]);
+        const type_idx = @enumToInt(module.function[i].type_idx);
         const func_type = module.@"type"[type_idx];
         try funcs.append(.{
             .func_type = type_idx,
