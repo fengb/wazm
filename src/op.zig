@@ -389,13 +389,13 @@ const Impl = struct {
 
     pub fn @"0x04 if"(ctx: *Context, arg: Arg.Type, pop: *I32) void {
         if (pop.data == 0) {
-            @panic("TODO find else or end");
+            ctx.jump(0);
         }
     }
 
     pub fn @"0x05 else"(ctx: *Context, arg: Void, pop: *Void) void {
         // If we are executing this instruction, it means the `if` fired, so we should skip until the end
-        ctx.unwindBlock(0);
+        ctx.jump(0);
     }
 
     pub fn @"0x0B end"(ctx: *Context, arg: Void, pop: *Void) void {
@@ -405,16 +405,16 @@ const Impl = struct {
     }
 
     pub fn @"0x0C br"(ctx: *Context, arg: U32, pop: *Void) void {
-        ctx.unwindBlock(arg.data);
+        ctx.jump(0);
     }
     pub fn @"0x0D br_if"(ctx: *Context, arg: U32, pop: *I32) void {
         if (pop.data != 0) {
-            ctx.unwindBlock(arg.data);
+            ctx.jump(0);
         }
     }
     pub fn @"0x0E br_table"(ctx: *Context, arg: Arg.Array, pop: *U32) void {
         const idx = std.math.min(pop.data, arg.len - 1); // default to last item. Pretty handy!
-        ctx.unwindBlock(arg.data[idx]);
+        ctx.jump(arg.data[idx]);
     }
     pub fn @"0x0F return"(ctx: *Context, arg: Void, pop: *Void) void {
         // Forces unwindCall()

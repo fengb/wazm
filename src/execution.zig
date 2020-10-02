@@ -1,5 +1,6 @@
 const std = @import("std");
 const Op = @import("op.zig");
+const Module = @import("module.zig");
 const instance = @import("instance.zig");
 const util = @import("util.zig");
 
@@ -7,6 +8,7 @@ pub const Context = struct {
     memory: []u8,
     funcs: []instance.Func,
     allocator: *std.mem.Allocator,
+    jumps: Module.InstrJumps,
 
     stack: []Op.Fixval,
     stack_top: usize,
@@ -93,55 +95,30 @@ pub const Context = struct {
         return result;
     }
 
-    pub fn unwindBlock(self: *Context, target_idx: u32) void {
-        const func = self.funcs[self.current_frame.func];
+    pub fn jump(self: *Context, target_idx: u32) void {
+        const meta = self.jumps.get(.{
+            .func = self.current_frame.func,
+            .instr = self.current_frame.instr - 1,
+        }).?;
 
-        var remaining = target_idx;
-        var stack_change: isize = 0;
-        // TODO: test this...
-        while (true) {
-            self.current_frame.instr += 1;
-            const instr = func.kind.instrs[self.current_frame.instr];
+        const result = if (meta.return_type) |_|
+            self.peek(Op.Fixval)
+        else
+            null;
 
-            stack_change -= @intCast(isize, instr.op.pop.len);
-            stack_change += @intCast(isize, @boolToInt(instr.op.push != null));
+        self.dropN(meta.stack_unroll);
 
-            const swh = util.Swhash(8);
-            switch (swh.match(instr.op.name)) {
-                swh.case("block"), swh.case("loop"), swh.case("if") => {
-                    remaining += 1;
-                },
-                swh.case("end") => {
-                    if (remaining > 0) {
-                        remaining -= 1;
-                    } else {
-                        // TODO: actually find the corresponding opening block
-                        const begin = instr;
-                        const top_value = self.stack[self.stack_top];
-
-                        std.debug.assert(stack_change <= 0);
-                        self.dropN(std.math.absCast(stack_change));
-
-                        const block_type = @intToEnum(Op.Arg.Type, begin.arg.U64);
-                        if (block_type != .Void) {
-                            self.push(Op.Fixval, top_value) catch unreachable;
-                        }
-
-                        if (std.mem.eql(u8, "loop", begin.op.name)) {
-                            // Inside loop blocks, br works like "continue" and jumps back to the beginning
-                            // self.current_frame.instr = begin_idx + 1;
-                        }
-                        return;
-                    }
-                },
-                else => {},
-            }
-        }
+        self.current_frame.instr = meta.targets[target_idx];
     }
 
     pub fn dropN(self: *Context, size: usize) void {
         std.debug.assert(self.stack_top + size <= self.stack.len);
         self.stack_top -= size;
+    }
+
+    pub fn peek(self: *Context, comptime T: type) T {
+        std.debug.assert(@sizeOf(T) == 16);
+        return @bitCast(T, self.stack[self.stack_top - 1]);
     }
 
     pub fn pop(self: *Context, comptime T: type) T {

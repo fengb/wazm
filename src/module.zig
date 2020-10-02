@@ -89,12 +89,23 @@ data: []struct {
     data: []const u8,
 },
 
+jumps: InstrJumps = .{},
+
+pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, struct {
+    return_type: ?Type.Value,
+    stack_unroll: u32,
+    targets: [*]u32, // len = 1, except br_table where len = args.len
+});
+
 pub fn init(arena: std.heap.ArenaAllocator) Module {
     var result: Module = undefined;
     result.arena = arena;
+    result.jumps = .{};
 
     inline for (std.meta.fields(Module)) |field| {
-        if (comptime !std.mem.eql(u8, field.name, "arena")) {
+        comptime const needs_zero = !std.mem.eql(u8, field.name, "arena") and !std.mem.eql(u8, field.name, "jumps");
+
+        if (needs_zero) {
             @field(result, field.name) = std.mem.zeroes(field.field_type);
         }
     }

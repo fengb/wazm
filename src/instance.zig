@@ -152,6 +152,7 @@ pub fn Instance(comptime Imports: type) type {
                 .memory = self.memory,
                 .funcs = self.funcs,
                 .allocator = self.allocator,
+                .jumps = self.module.jumps,
 
                 .stack = stack,
                 .stack_top = 0,
