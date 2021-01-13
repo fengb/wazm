@@ -16,27 +16,6 @@ funcs: []Func,
 mutex: std.Mutex,
 
 pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: type) !Instance {
-    //    var import_funcs = try std.ArrayList(Instance.ImportFunc).initCapacity(allocator, module.imports.len);
-    //    errdefer import_funcs.deinit();
-    //    for (module.imports) |import| cont: {
-    //        inline for (std.meta.declarations(imports)) |namespace| {
-    //            if (std.mem.eql(u8, namespace.name, import.module)) {
-    //                inline for (std.meta.declarations(namespace)) |field| {
-    //                    if (std.mem.eql(u8, namespace.name, import.module)) {
-    //                        try import_funcs.append(
-    //                            try Instance.ImportType.init(
-    //                                namespace.func_types[import.func],
-    //                                @field(namespace, field.name),
-    //                            ),
-    //                        );
-    //                        break :cont;
-    //                    }
-    //                }
-    //                return error.FieldNotFound;
-    //            }
-    //            return error.NamespaceNotFound;
-    //        }
-    //    }
     var exports = std.StringHashMap(Export).init(allocator);
     errdefer exports.deinit();
     for (module.@"export") |exp| {
@@ -56,7 +35,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: ty
                 .result = func_type.return_type,
                 .locals = &[0]Module.Type.Value{},
                 .kind = .{
-                    .imported = ImportedFunc.init(Imports, import.module, import.field),
+                    .imported = try ImportedFunc.init(Imports, import.module, import.field, func_type),
                 },
             });
         }
@@ -223,32 +202,67 @@ const ImportedFunc = struct {
     func: fn (ctx: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval,
     frame_size: usize,
 
-    fn init(comptime Imports: type, module: []const u8, field: []const u8) ImportedFunc {
+    fn init(
+        comptime Imports: type,
+        module: []const u8,
+        field: []const u8,
+        signature: Module.sectionType(.Type),
+    ) !ImportedFunc {
         inline for (std.meta.declarations(Imports)) |decl| {
             if (decl.is_pub and std.mem.eql(u8, module, decl.name)) {
                 inline for (std.meta.declarations(decl.data.Type)) |decl2| {
                     if (decl2.is_pub and std.mem.eql(u8, field, decl2.name)) {
                         const func = @field(decl.data.Type, decl2.name);
+                        try validate(func, signature);
                         comptime const wrapped = wrap(func);
-                        return .{
+                        return ImportedFunc{
                             .func = wrapped,
                             .frame_size = @frameSize(wrapped),
                         };
                     }
                 }
 
-                @panic("Func not found");
+                return error.FieldNotFound;
             }
         }
 
-        @panic("Module not found");
+        return error.ModuleNotFound;
+    }
+
+    fn assert(success: bool) !void {
+        if (!success) return error.TypeSignatureMismatch;
+    }
+
+    fn validate(comptime func: anytype, signature: Module.sectionType(.Type)) !void {
+        const fn_info = @typeInfo(@TypeOf(func)).Fn;
+
+        switch (fn_info.return_type.?) {
+            void => try assert(signature.return_type == null),
+            i32, u32 => try assert(signature.return_type == Module.Type.Value.I32),
+            i64, u64 => try assert(signature.return_type == Module.Type.Value.I64),
+            f32 => try assert(signature.return_type == Module.Type.Value.F32),
+            f64 => try assert(signature.return_type == Module.Type.Value.F64),
+            else => @panic("Signature not supported"),
+        }
+
+        std.debug.assert(fn_info.args[0].arg_type.? == *Execution.Context);
+
+        try assert(fn_info.args.len - 1 == signature.param_types.len);
+        inline for (fn_info.args[1..]) |arg, i| {
+            switch (fn_info.return_type.?) {
+                i32, u32 => try assert(signature.param_types[i] == .I32),
+                i64, u64 => try assert(signature.param_types[i] == .I64),
+                f32 => try assert(signature.param_types[i] == .F32),
+                f64 => try assert(signature.param_types[i] == .F64),
+                else => @panic("Signature not supported"),
+            }
+        }
     }
 
     fn wrap(comptime func: anytype) fn (self: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
         return (struct {
             pub fn wrapped(ctx: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
                 var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
-                std.debug.assert(@TypeOf(args[0]) == *Execution.Context);
                 args[0] = ctx;
                 inline for (std.meta.fields(@TypeOf(args))) |f, i| {
                     if (i == 0) continue;
