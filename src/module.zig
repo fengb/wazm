@@ -200,10 +200,10 @@ pub const Instr = struct {
 const InitExpr = struct {};
 
 fn readVarint(comptime T: type, reader: anytype) !T {
-    const readFn = if (@typeInfo(T).Int.is_signed)
-        std.debug.leb.readILEB128
-    else
-        std.debug.leb.readULEB128;
+    const readFn = switch (@typeInfo(T).Int.signedness) {
+        .signed => std.leb.readILEB128,
+        .unsigned => std.leb.readULEB128,
+    };
     return try readFn(T, reader);
 }
 

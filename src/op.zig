@@ -205,7 +205,7 @@ pub const Arg = struct {
     pub const Array = packed struct {
         data: [*]u32,
         len: usize,
-        _pad: std.meta.IntType(false, 128 - 2 * @bitSizeOf(usize)) = 0,
+        _pad: std.meta.Int(.unsigned, 128 - 2 * @bitSizeOf(usize)) = 0,
     };
 };
 

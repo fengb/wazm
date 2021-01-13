@@ -42,14 +42,14 @@ pub const Context = struct {
 
     // TODO: move these memory methods?
     pub fn load(self: Context, comptime T: type, start: usize, offset: usize) !T {
-        const Int = std.meta.Int(false, @bitSizeOf(T));
+        const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
         const raw = std.mem.readIntLittle(Int, try self.memGet(start, offset, @sizeOf(T)));
         return @bitCast(T, raw);
     }
 
     pub fn store(self: Context, comptime T: type, start: usize, offset: usize, value: T) !void {
         const bytes = try self.memGet(start, offset, @sizeOf(T));
-        const Int = std.meta.Int(false, @bitSizeOf(T));
+        const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
         std.mem.writeIntLittle(Int, bytes, @bitCast(Int, value));
     }
 
