@@ -1,6 +1,7 @@
 const std = @import("std");
 const Instance = @import("instance.zig");
 const Op = @import("op.zig");
+pub const post_process = @import("module/post_process.zig").post_process;
 
 const magic_number = std.mem.readIntLittle(u32, "\x00asm");
 
@@ -530,6 +531,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
         }
         try expectEos(payload.reader());
     }
+
+    try result.post_process();
 
     return result;
 }

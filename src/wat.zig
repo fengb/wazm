@@ -557,7 +557,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     try root.expectEnd();
     try ctx.expectEos();
 
-    return Module{
+    var result = Module{
         .custom = customs.items,
         .@"type" = types.items,
         .import = imports.items,
@@ -573,6 +573,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
         .arena = arena,
     };
+    try result.post_process();
+    return result;
 }
 
 test "parse" {
@@ -596,10 +598,10 @@ test "parse" {
     {
         var fbs = std.io.fixedBufferStream(
             \\(module
-            \\  (func (param i32) (param f32) (result i64) (local f64)
+            \\  (func (param i64) (param f32) (result i64) (local f64)
             \\    local.get 0
-            \\    local.get 1
-            \\    local.get 2))
+            \\    drop
+            \\    local.get 0))
         );
         var module = try parse(std.testing.allocator, fbs.reader());
         defer module.deinit();
@@ -608,7 +610,7 @@ test "parse" {
 
         const func_type = module.@"type"[0];
         std.testing.expectEqual(@as(usize, 2), func_type.param_types.len);
-        std.testing.expectEqual(Module.Type.Value.I32, func_type.param_types[0]);
+        std.testing.expectEqual(Module.Type.Value.I64, func_type.param_types[0]);
         std.testing.expectEqual(Module.Type.Value.F32, func_type.param_types[1]);
         std.testing.expectEqual(Module.Type.Value.I64, func_type.return_type.?);
 
@@ -622,7 +624,7 @@ test "parse" {
     {
         var fbs = std.io.fixedBufferStream(
             \\(module
-            \\  (func (param i32) local.get 0)
+            \\  (func (param i32) (result i32) local.get 0)
             \\  (export "foo" (func 0)))
         );
         var module = try parse(std.testing.allocator, fbs.reader());
