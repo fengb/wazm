@@ -108,7 +108,7 @@ pub fn call(self: *Instance, name: []const u8, params: anytype) !?Value {
     }
 
     var stack: [1 << 10]Op.Fixval = undefined;
-    const result = try self.run(&stack, func_id, converted_params[0..params.len]);
+    const result = try Execution.run(self, &stack, func_id, converted_params[0..params.len]);
     if (result) |res| {
         return switch (func.result.?) {
             .I32 => Value{ .I32 = res.I32 },
@@ -118,69 +118,6 @@ pub fn call(self: *Instance, name: []const u8, params: anytype) !?Value {
         };
     } else {
         return null;
-    }
-}
-
-fn run(self: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
-    var ctx = Execution.Context{
-        .memory = self.memory,
-        .funcs = self.funcs,
-        .allocator = self.allocator,
-        .jumps = self.module.jumps,
-
-        .stack = stack,
-        .stack_top = 0,
-    };
-    // Context may have grown the memory, so we need to copy the new memory in
-    // TODO: rearchitect so this copying is unnecessary
-    defer self.memory = ctx.memory;
-
-    // initCall assumes the params are already pushed onto the stack
-    for (params) |param| {
-        try ctx.push(Op.Fixval, param);
-    }
-
-    try ctx.initCall(func_id);
-
-    while (true) {
-        const func = ctx.funcs[ctx.current_frame.func];
-        // TODO: investigate imported calling another imported
-        if (ctx.current_frame.instr == 0 and func.kind == .imported) {
-            const result = try func.kind.imported.func(&ctx, ctx.getLocals(0, func.params.len));
-
-            _ = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
-            }
-        } else if (ctx.current_frame.instr < func.kind.instrs.len) {
-            const instr = func.kind.instrs[ctx.current_frame.instr];
-            ctx.current_frame.instr += 1;
-
-            ctx.stack_top -= instr.op.pop.len;
-            const pop_array: [*]Op.Fixval = ctx.stack.ptr + ctx.stack_top;
-
-            const result = try instr.op.step(&ctx, instr.arg, pop_array);
-            if (result) |res| {
-                try ctx.push(@TypeOf(res), res);
-            }
-        } else {
-            const result = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
-            }
-        }
     }
 }
 
@@ -199,7 +136,7 @@ pub const Export = union(enum) {
 };
 
 const ImportedFunc = struct {
-    func: fn (ctx: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval,
+    func: fn (ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval,
     frame_size: usize,
 
     fn init(
@@ -245,7 +182,7 @@ const ImportedFunc = struct {
             else => @panic("Signature not supported"),
         }
 
-        std.debug.assert(fn_info.args[0].arg_type.? == *Execution.Context);
+        std.debug.assert(fn_info.args[0].arg_type.? == *Execution);
 
         try assert(fn_info.args.len - 1 == signature.param_types.len);
         inline for (fn_info.args[1..]) |arg, i| {
@@ -259,9 +196,9 @@ const ImportedFunc = struct {
         }
     }
 
-    fn wrap(comptime func: anytype) fn (self: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
+    fn wrap(comptime func: anytype) fn (self: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
         return (struct {
-            pub fn wrapped(ctx: *Execution.Context, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
+            pub fn wrapped(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
                 var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
                 args[0] = ctx;
                 inline for (std.meta.fields(@TypeOf(args))) |f, i| {
