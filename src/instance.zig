@@ -25,19 +25,32 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: ty
     var funcs = std.ArrayList(Func).init(allocator);
     errdefer funcs.deinit();
 
+    const karen = ImportManager(Imports);
+
     for (module.import) |import, i| {
-        if (import.kind == .Function) {
-            const type_idx = @enumToInt(import.kind.Function);
-            const func_type = module.@"type"[type_idx];
-            try funcs.append(.{
-                .func_type = type_idx,
-                .params = func_type.param_types,
-                .result = func_type.return_type,
-                .locals = &[0]Module.Type.Value{},
-                .kind = .{
-                    .imported = try ImportedFunc.init(Imports, import.module, import.field, func_type),
-                },
-            });
+        switch (import.kind) {
+            .Function => {
+                const type_idx = @enumToInt(import.kind.Function);
+                const func_type = module.@"type"[type_idx];
+                const lookup = karen.get(import.module, import.field) orelse return error.ImportNotFound;
+                if (!std.meta.eql(lookup.return_type, func_type.return_type)) {
+                    return error.ImportSignatureMismatch;
+                }
+                if (!std.mem.eql(Module.Type.Value, lookup.param_types, func_type.param_types)) {
+                    return error.ImportSignatureMismatch;
+                }
+
+                try funcs.append(.{
+                    .func_type = type_idx,
+                    .params = func_type.param_types,
+                    .result = func_type.return_type,
+                    .locals = &[0]Module.Type.Value{},
+                    .kind = .{
+                        .imported = .{ .func = lookup.func, .frame_size = lookup.frame_size },
+                    },
+                });
+            },
+            else => @panic("Implement me"),
         }
     }
 
@@ -135,109 +148,122 @@ pub const Export = union(enum) {
     Global: usize,
 };
 
-const ImportedFunc = struct {
-    func: fn (ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval,
-    frame_size: usize,
+fn ImportManager(comptime Imports: type) type {
+    const V = struct {
+        func: ImportFunc,
+        frame_size: usize,
+        param_types: []Module.Type.Value,
+        return_type: ?Module.Type.Value,
+    };
+    const KV = struct {
+        @"0": []const u8,
+        @"1": V,
+    };
 
-    fn init(
-        comptime Imports: type,
-        module: []const u8,
-        field: []const u8,
-        signature: Module.sectionType(.Type),
-    ) !ImportedFunc {
-        inline for (std.meta.declarations(Imports)) |decl| {
-            if (decl.is_pub and std.mem.eql(u8, module, decl.name)) {
-                inline for (std.meta.declarations(decl.data.Type)) |decl2| {
-                    if (decl2.is_pub and std.mem.eql(u8, field, decl2.name)) {
-                        const func = @field(decl.data.Type, decl2.name);
-                        try validate(func, signature);
-                        comptime const wrapped = wrap(func);
-                        return ImportedFunc{
+    const helpers = struct {
+        fn wrap(comptime func: anytype) ImportFunc {
+            return struct {
+                pub fn wrapped(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
+                    var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
+                    args[0] = ctx;
+                    inline for (std.meta.fields(@TypeOf(args))) |f, i| {
+                        if (i == 0) continue;
+
+                        switch (f.field_type) {
+                            i32 => args[i] = params[i - 1].I32,
+                            i64 => args[i] = params[i - 1].I64,
+                            u32 => args[i] = params[i - 1].U32,
+                            u64 => args[i] = params[i - 1].U64,
+                            f32 => args[i] = params[i - 1].F32,
+                            f64 => args[i] = params[i - 1].F64,
+                            else => @compileError("Signature not supported"),
+                        }
+                    }
+
+                    // TODO: move async call to where this is being invoked
+                    // const fixval_len = std.math.divCeil(comptime_int, @sizeOf(@Frame(func)), @sizeOf(Op.Fixval)) catch unreachable;
+                    // const frame_loc = ctx.pushOpaque(fixval_len) catch unreachable;
+                    // const frame = @ptrCast(*@Frame(func), frame_loc);
+                    // comptime const opts = std.builtin.CallOptions{ .modifier = .async_kw };
+                    // frame.* = @call(opts, func, args);
+                    // const result = nosuspend await frame;
+
+                    const result = @call(.{}, func, args);
+                    return switch (@TypeOf(result)) {
+                        void => null,
+                        i32 => Op.Fixval{ .I32 = result },
+                        i64 => Op.Fixval{ .I64 = result },
+                        u32 => Op.Fixval{ .U32 = result },
+                        u64 => Op.Fixval{ .U64 = result },
+                        f32 => Op.Fixval{ .F32 = result },
+                        f64 => Op.Fixval{ .F64 = result },
+                        else => @compileError("Signature not supported"),
+                    };
+                }
+            }.wrapped;
+        }
+
+        fn mapType(comptime T: type) ?Module.Type.Value {
+            return switch (T) {
+                void => null,
+                i32, u32 => .I32,
+                i64, u64 => .I64,
+                f32 => .F32,
+                f64 => .F64,
+                else => @compileError("Type '" ++ @typeName(T) ++ "' not supported"),
+            };
+        }
+    };
+
+    const sep = "\x00\x00";
+
+    var kvs: []const KV = &[0]KV{};
+    inline for (std.meta.declarations(Imports)) |decl| {
+        if (decl.is_pub) {
+            inline for (std.meta.declarations(decl.data.Type)) |decl2| {
+                if (decl2.is_pub) {
+                    const func = @field(decl.data.Type, decl2.name);
+                    const fn_info = @typeInfo(@TypeOf(func)).Fn;
+                    const wrapped = helpers.wrap(func);
+                    kvs = kvs ++ [1]KV{.{
+                        .@"0" = decl.name ++ sep ++ decl2.name,
+                        .@"1" = .{
                             .func = wrapped,
-                            .frame_size = @frameSize(wrapped),
-                        };
-                    }
+                            .frame_size = @sizeOf(@Frame(wrapped)),
+                            .param_types = params: {
+                                var param_types: [fn_info.args.len - 1]Module.Type.Value = undefined;
+                                for (param_types) |*param, i| {
+                                    param.* = helpers.mapType(fn_info.args[i + 1].arg_type.?).?;
+                                }
+                                break :params &param_types;
+                            },
+                            .return_type = helpers.mapType(fn_info.return_type.?),
+                        },
+                    }};
                 }
-
-                return error.FieldNotFound;
-            }
-        }
-
-        return error.ModuleNotFound;
-    }
-
-    fn assert(success: bool) !void {
-        if (!success) return error.TypeSignatureMismatch;
-    }
-
-    fn validate(comptime func: anytype, signature: Module.sectionType(.Type)) !void {
-        const fn_info = @typeInfo(@TypeOf(func)).Fn;
-
-        switch (fn_info.return_type.?) {
-            void => try assert(signature.return_type == null),
-            i32, u32 => try assert(signature.return_type == Module.Type.Value.I32),
-            i64, u64 => try assert(signature.return_type == Module.Type.Value.I64),
-            f32 => try assert(signature.return_type == Module.Type.Value.F32),
-            f64 => try assert(signature.return_type == Module.Type.Value.F64),
-            else => @panic("Signature not supported"),
-        }
-
-        std.debug.assert(fn_info.args[0].arg_type.? == *Execution);
-
-        try assert(fn_info.args.len - 1 == signature.param_types.len);
-        inline for (fn_info.args[1..]) |arg, i| {
-            switch (fn_info.return_type.?) {
-                i32, u32 => try assert(signature.param_types[i] == .I32),
-                i64, u64 => try assert(signature.param_types[i] == .I64),
-                f32 => try assert(signature.param_types[i] == .F32),
-                f64 => try assert(signature.param_types[i] == .F64),
-                else => @panic("Signature not supported"),
             }
         }
     }
 
-    fn wrap(comptime func: anytype) fn (self: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
-        return (struct {
-            pub fn wrapped(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
-                var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
-                args[0] = ctx;
-                inline for (std.meta.fields(@TypeOf(args))) |f, i| {
-                    if (i == 0) continue;
+    const map = if (kvs.len > 0) std.ComptimeStringMap(V, kvs) else {};
 
-                    switch (f.field_type) {
-                        i32 => args[i] = params[i - 1].I32,
-                        i64 => args[i] = params[i - 1].I64,
-                        u32 => args[i] = params[i - 1].U32,
-                        u64 => args[i] = params[i - 1].U64,
-                        f32 => args[i] = params[i - 1].F32,
-                        f64 => args[i] = params[i - 1].F64,
-                        else => @panic("Signature not supported"),
-                    }
-                }
+    return struct {
+        pub fn get(module: []const u8, field: []const u8) ?V {
+            if (kvs.len == 0) return null;
 
-                // TODO: move async call to where this is being invoked
-                // const fixval_len = std.math.divCeil(comptime_int, @sizeOf(@Frame(func)), @sizeOf(Op.Fixval)) catch unreachable;
-                // const frame_loc = ctx.pushOpaque(fixval_len) catch unreachable;
-                // const frame = @ptrCast(*@Frame(func), frame_loc);
-                // comptime const opts = std.builtin.CallOptions{ .modifier = .async_kw };
-                // frame.* = @call(opts, func, args);
-                // const result = nosuspend await frame;
+            var buffer: [1 << 10]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buffer);
 
-                const result = @call(.{}, func, args);
-                return switch (@TypeOf(result)) {
-                    void => null,
-                    i32 => Op.Fixval{ .I32 = result },
-                    i64 => Op.Fixval{ .I64 = result },
-                    u32 => Op.Fixval{ .U32 = result },
-                    u64 => Op.Fixval{ .U64 = result },
-                    f32 => Op.Fixval{ .F32 = result },
-                    f64 => Op.Fixval{ .F64 = result },
-                    else => @panic("Signature not supported"),
-                };
-            }
-        }).wrapped;
-    }
-};
+            fbs.writer().writeAll(module) catch return null;
+            fbs.writer().writeAll(sep) catch return null;
+            fbs.writer().writeAll(field) catch return null;
+
+            return map.get(fbs.getWritten());
+        }
+    };
+}
+
+const ImportFunc = fn (ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval;
 
 pub const Func = struct {
     func_type: usize,
@@ -245,7 +271,10 @@ pub const Func = struct {
     result: ?Module.Type.Value,
     locals: []Module.Type.Value,
     kind: union(enum) {
-        imported: ImportedFunc,
+        imported: struct {
+            func: ImportFunc,
+            frame_size: usize,
+        },
         instrs: []Module.Instr,
     },
 };
