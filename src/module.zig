@@ -469,7 +469,13 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                         var list = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                         while (true) {
                             const opcode = payload.reader().readByte() catch |err| switch (err) {
-                                error.EndOfStream => break :code list.items,
+                                error.EndOfStream => {
+                                    const last = list.popOrNull() orelse return error.MissingFunctionEnd;
+                                    if (last.op != .end) {
+                                        return error.MissingFunctionEnd;
+                                    }
+                                    break :code list.items;
+                                },
                                 else => return err,
                             };
 
@@ -592,9 +598,8 @@ test "module with function body" {
 
     std.testing.expectEqual(@as(usize, 1), module.function.len);
     std.testing.expectEqual(@as(usize, 1), module.code.len);
-    std.testing.expectEqual(@as(usize, 2), module.code[0].code.len);
+    std.testing.expectEqual(@as(usize, 1), module.code[0].code.len);
     std.testing.expectEqual(Op.Code.@"i32.const", module.code[0].code[0].op);
-    std.testing.expectEqual(Op.Code.end, module.code[0].code[1].op);
 
     var instance = try module.instantiate(std.testing.allocator, struct {});
     defer instance.deinit();

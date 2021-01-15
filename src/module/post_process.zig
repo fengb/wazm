@@ -8,6 +8,7 @@ pub fn post_process(self: *Module) !void {
     defer temp_arena.deinit();
 
     var stack_types = std.ArrayList(Module.Type.Value).init(&temp_arena.allocator);
+    var stack_blocks = std.ArrayList(usize).init(&temp_arena.allocator);
 
     var import_funcs: usize = 0;
     for (self.import) |import| {
@@ -16,15 +17,44 @@ pub fn post_process(self: *Module) !void {
         }
     }
 
-    for (self.code) |body, i| {
+    for (self.code) |body, f| {
         std.debug.assert(stack_types.items.len == 0);
 
-        const func = self.function[i];
+        const func = self.function[f];
         const func_type = self.@"type"[@enumToInt(func.type_idx)];
-        const func_idx = i + import_funcs;
-        for (body.code) |instr| {
+        const func_idx = f + import_funcs;
+        for (body.code) |instr, i| {
             const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
+                .block, .loop, .@"if" => {
+                    try stack_blocks.append(i);
+                },
+                .end => {
+                    const block_idx = stack_blocks.popOrNull() orelse return error.BlockMismatch;
+                    const block_instr = body.code[block_idx];
+                    const result_type = @intToEnum(Op.Arg.Type, block_instr.arg.V128);
+                    if (result_type != .Void) {
+                        if (stack_types.items.len == 0) {
+                            return error.BlockMismatch;
+                        }
+                        const last = stack_types.items[stack_types.items.len - 1];
+                        const converted_type: Module.Type.Value = switch (result_type) {
+                            .Void => unreachable,
+                            .I32 => .I32,
+                            .I64 => .I64,
+                            .F32 => .F32,
+                            .F64 => .F64,
+                        };
+                        if (converted_type != last) {
+                            return error.StackMismatch;
+                        }
+
+                        if (instr.op == .@"else") {
+                            _ = stack_types.pop();
+                        }
+                    }
+                },
+                .@"else" => @panic("TODO"),
                 .call => {
                     const call_func = self.function[instr.arg.U32];
                     try processFuncStack(&stack_types, self.@"type"[@enumToInt(call_func.type_idx)]);
@@ -63,6 +93,10 @@ pub fn post_process(self: *Module) !void {
                     }
                 },
             }
+        }
+
+        if (stack_blocks.items.len != 0) {
+            return error.BlockMismatch;
         }
 
         if (func_type.return_type) |return_type| {

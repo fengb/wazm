@@ -190,7 +190,7 @@ pub const Arg = struct {
         }
     };
 
-    pub const Type = enum(u128) {
+    pub const Type = enum(i128) {
         Void = 0x40,
         I32 = 0x7F,
         I64 = 0x7E,
