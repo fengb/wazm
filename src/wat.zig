@@ -469,16 +469,17 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 var code = std.ArrayList(Module.Instr).init(&arena.allocator);
                 var val_buf: [0x100]u8 = undefined;
                 while (try command.nextAtom(&val_buf)) |val| {
-                    const op = Op.byName(val) orelse return error.OpNotFound;
+                    const op = std.meta.stringToEnum(Op.Code, val) orelse return error.OpNotFound;
+                    const op_meta = Op.Meta.of(op);
 
                     try code.append(.{
                         .op = op,
                         .arg = blk: {
-                            if (op.arg_kind == .Void) break :blk .{ .I64 = 0 };
+                            if (op_meta.arg_kind == .Void) break :blk .{ .I64 = 0 };
 
                             var arg_buf: [0x10]u8 = undefined;
                             const arg = try command.obtainAtom(&arg_buf);
-                            break :blk @as(Op.Fixval, switch (op.arg_kind) {
+                            break :blk @as(Op.Fixval, switch (op_meta.arg_kind) {
                                 .Void => unreachable,
                                 .Type => {
                                     break :blk Op.Fixval.init(

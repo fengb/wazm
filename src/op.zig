@@ -1,89 +1,101 @@
 const std = @import("std");
 const Context = @import("execution.zig").Context;
 
-const Op = @This();
+pub const Code = @Type(.{
+    .Enum = .{
+        .decls = &[_]std.builtin.TypeInfo.Declaration{},
+        .tag_type = u8,
+        .is_exhaustive = false,
+        .layout = .Extern,
+        .fields = blk: {
+            var fields: []const std.builtin.TypeInfo.EnumField = &[0]std.builtin.TypeInfo.EnumField{};
+            for (Meta.sparse) |op| {
+                fields = fields ++ &[1]std.builtin.TypeInfo.EnumField{.{
+                    .name = op.name,
+                    .value = op.raw_code,
+                }};
+            }
 
-code: u8,
-name: []const u8,
-can_error: bool,
-arg_kind: Arg.Kind,
-push: ?Stack.Change,
-pop: []const Stack.Change,
+            break :blk fields;
+        },
+    },
+});
 
-pub const sparse = sparse: {
-    @setEvalBranchQuota(10000);
-    const decls = publicFunctions(Impl);
-    var result: [decls.len]Op = undefined;
-    for (decls) |decl, i| {
-        const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
-        const ctx_type = args[0].arg_type.?;
-        const arg_type = args[1].arg_type.?;
-        const pop_type = args[2].arg_type.?;
-        if (@typeInfo(pop_type) != .Pointer) @compileError("Pop must be a pointer: " ++ @typeName(pop_type));
-        const pop_ref_type = std.meta.Child(pop_type);
+pub const Meta = struct {
+    raw_code: u8,
+    name: []const u8,
+    arg_kind: Arg.Kind,
+    push: ?Stack.Change,
+    pop: []const Stack.Change,
 
-        const return_type = decl.data.Fn.return_type;
+    const sparse = sparse: {
+        @setEvalBranchQuota(10000);
+        const decls = publicFunctions(Impl);
+        var result: [decls.len]Meta = undefined;
+        for (decls) |decl, i| {
+            const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
+            const ctx_type = args[0].arg_type.?;
+            const arg_type = args[1].arg_type.?;
+            const pop_type = args[2].arg_type.?;
+            if (@typeInfo(pop_type) != .Pointer) @compileError("Pop must be a pointer: " ++ @typeName(pop_type));
+            const pop_ref_type = std.meta.Child(pop_type);
 
-        result[i] = .{
-            .code = parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
-            .name = decl.name[5..],
-            .can_error = switch (@typeInfo(return_type)) {
+            const return_type = decl.data.Fn.return_type;
+            const push_type = switch (@typeInfo(decl.data.Fn.return_type)) {
                 .ErrorUnion => |eu_info| blk: {
                     for (std.meta.fields(eu_info.error_set)) |err| {
                         if (!errContains(WasmTrap, err.name)) {
                             @compileError("Unhandleable error: " ++ err.name);
                         }
                     }
-                    break :blk true;
+                    break :blk eu_info.payload;
                 },
-                else => false,
-            },
-            .arg_kind = Arg.Kind.init(arg_type),
-            .push = switch (@typeInfo(return_type)) {
-                .Void => null,
-                .ErrorUnion => |eu_info| Stack.Change.initPush(eu_info.payload),
-                else => Stack.Change.initPush(return_type),
-            },
-            .pop = if (pop_ref_type == Fixval.Void)
-                &[0]Stack.Change{}
-            else switch (@typeInfo(pop_ref_type)) {
-                .Int, .Float, .Union => &[1]Stack.Change{Stack.Change.initPop(pop_ref_type)},
-                .Struct => |s_info| blk: {
-                    var pop_changes: [s_info.fields.len]Stack.Change = undefined;
-                    for (s_info.fields) |field, f| {
-                        pop_changes[f] = Stack.Change.initPop(field.field_type);
-                    }
-                    break :blk &pop_changes;
+                else => return_type,
+            };
+
+            result[i] = .{
+                .raw_code = parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
+                .name = decl.name[5..],
+                .arg_kind = Arg.Kind.init(arg_type),
+                .push = Stack.Change.initPush(push_type),
+                .pop = switch (pop_ref_type) {
+                    Fixval.Void => &[0]Stack.Change{},
+                    else => switch (@typeInfo(pop_ref_type)) {
+                        .Union => &[1]Stack.Change{Stack.Change.initPop(pop_ref_type)},
+                        .Struct => |s_info| blk: {
+                            var pop_changes: [s_info.fields.len]Stack.Change = undefined;
+                            for (s_info.fields) |field, f| {
+                                pop_changes[f] = Stack.Change.initPop(field.field_type);
+                            }
+                            break :blk &pop_changes;
+                        },
+                        else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
+                    },
                 },
-                else => @compileError("Unsupported pop type: " ++ @typeName(pop_type)),
-            },
-        };
-    }
-
-    break :sparse result;
-};
-
-pub const all = blk: {
-    var result = [_]?Op{null} ** 256;
-
-    for (sparse) |meta| {
-        if (result[meta.code] != null) {
-            var buf: [100]u8 = undefined;
-            @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.code, meta.name }));
+            };
         }
-        result[meta.code] = meta;
-    }
-    break :blk result;
-};
 
-pub fn byName(needle: []const u8) ?Op {
-    inline for (sparse) |op| {
-        if (std.mem.eql(u8, op.name, needle)) {
-            return op;
-        }
+        break :sparse result;
+    };
+
+    // TODO: move to Op.Code.meta() when/if we get decls
+    pub fn of(code: Code) Meta {
+        return all[@enumToInt(code)].?;
     }
-    return null;
-}
+
+    pub const all = blk: {
+        var result = [_]?Meta{null} ** 256;
+
+        for (sparse) |meta| {
+            if (result[meta.raw_code] != null) {
+                var buf: [100]u8 = undefined;
+                @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.raw_code, meta.name }));
+            }
+            result[meta.raw_code] = meta;
+        }
+        break :blk result;
+    };
+};
 
 /// Generic memory chunk capable of representing any wasm type.
 /// Useful for storing instruction args, stack variables, and globals.
@@ -267,19 +279,19 @@ fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {
 }
 
 test "ops" {
-    const nop = byName("nop").?;
+    const nop = Meta.of(.nop);
     std.testing.expectEqual(nop.arg_kind, .Void);
     std.testing.expectEqual(nop.push, null);
     std.testing.expectEqual(nop.pop.len, 0);
 
-    const i32_load = byName("i32.load").?;
+    const i32_load = Meta.of(.@"i32.load");
     std.testing.expectEqual(i32_load.arg_kind, .Mem);
     std.testing.expectEqual(i32_load.push, .I32);
 
     std.testing.expectEqual(i32_load.pop.len, 1);
     std.testing.expectEqual(i32_load.pop[0], .I32);
 
-    const select = byName("select").?;
+    const select = Meta.of(.select);
     std.testing.expectEqual(select.arg_kind, .Void);
     std.testing.expectEqual(select.push, .Poly);
 
@@ -301,8 +313,9 @@ pub const WasmTrap = error{
 
 const hex = "0123456789ABCDEF";
 
-pub fn step(self: Op, ctx: *Context, arg: Fixval, pop: [*]Fixval) WasmTrap!?Fixval {
-    var prefix_search = [4]u8{ '0', 'x', hex[self.code / 16], hex[self.code % 16] };
+pub fn step(op: Code, ctx: *Context, arg: Fixval, pop: [*]Fixval) WasmTrap!?Fixval {
+    const code = @enumToInt(op);
+    var prefix_search = [4]u8{ '0', 'x', hex[code / 16], hex[code % 16] };
 
     // TODO: test out function pointers for performance comparison
     // LLVM optimizes this inline for / mem.eql as a jump table

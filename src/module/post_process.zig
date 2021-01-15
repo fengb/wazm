@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Module = @import("../module.zig");
+const Op = @import("../op.zig");
 
 pub fn post_process(self: *Module) !void {
     var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
@@ -17,23 +18,24 @@ pub fn post_process(self: *Module) !void {
         const func_type = self.@"type"[@enumToInt(func.type_idx)];
         const func_idx = i + import_funcs;
         for (body.code) |instr| {
-            switch (instr.op.code) {
-                0x10 => {
+            const op_meta = Op.Meta.of(instr.op);
+            switch (instr.op) {
+                .call => {
                     const call_func = self.function[instr.arg.U32];
                     try processFuncStack(&stack_types, self.@"type"[@enumToInt(call_func.type_idx)]);
                 },
-                0x11 => try processFuncStack(&stack_types, self.@"type"[instr.arg.U32]),
+                .call_indirect => try processFuncStack(&stack_types, self.@"type"[instr.arg.U32]),
                 else => {
-                    for (instr.op.pop) |pop| {
+                    for (op_meta.pop) |pop| {
                         const top = stack_types.popOrNull() orelse return error.StackMismatch;
                         const expected: Module.Type.Value = switch (pop) {
                             .I32 => .I32,
                             .I64 => .I64,
                             .F32 => .F32,
                             .F64 => .F64,
-                            .Poly => switch (instr.op.code) {
-                                0x1A => continue, // Drops *any* value, no comparison needed
-                                0x21, 0x22 => localType(instr.arg.U32, func_type.param_types, body.locals),
+                            .Poly => switch (instr.op) {
+                                .drop => continue, // Drops *any* value, no comparison needed
+                                .@"local.set", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
                                 else => @panic("TODO"),
                             },
                         };
@@ -42,14 +44,14 @@ pub fn post_process(self: *Module) !void {
                         }
                     }
 
-                    if (instr.op.push) |push| {
+                    if (op_meta.push) |push| {
                         try stack_types.append(switch (push) {
                             .I32 => .I32,
                             .I64 => .I64,
                             .F32 => .F32,
                             .F64 => .F64,
-                            .Poly => switch (instr.op.code) {
-                                0x20, 0x22 => localType(instr.arg.U32, func_type.param_types, body.locals),
+                            .Poly => switch (instr.op) {
+                                .@"local.get", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
                                 else => @panic("TODO"),
                             },
                         });
