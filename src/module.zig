@@ -195,6 +195,7 @@ pub const ResizableLimits = struct {
 
 pub const Instr = struct {
     op: Op.Code,
+    pop_len: u8,
     arg: Op.Fixval,
 };
 
@@ -476,6 +477,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
                             try list.append(.{
                                 .op = @intToEnum(Op.Code, opcode),
+                                .pop_len = @intCast(u8, op_meta.pop.len),
                                 .arg = switch (op_meta.arg_kind) {
                                     .Void => .{ .I64 = 0 },
                                     .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },

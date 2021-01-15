@@ -474,6 +474,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
                     try code.append(.{
                         .op = op,
+                        .pop_len = @intCast(u8, op_meta.pop.len),
                         .arg = blk: {
                             if (op_meta.arg_kind == .Void) break :blk .{ .I64 = 0 };
 

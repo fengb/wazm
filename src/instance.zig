@@ -193,7 +193,7 @@ pub fn Instance(comptime Imports: type) type {
                     const instr = func.kind.instrs[ctx.current_frame.instr];
                     ctx.current_frame.instr += 1;
 
-                    ctx.stack_top -= Op.Meta.of(instr.op).pop.len;
+                    ctx.stack_top -= instr.pop_len;
                     const pop_array: [*]Op.Fixval = ctx.stack.ptr + ctx.stack_top;
 
                     const result = try Op.step(instr.op, &ctx, instr.arg, pop_array);
