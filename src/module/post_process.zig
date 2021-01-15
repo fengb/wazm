@@ -11,39 +11,50 @@ pub fn post_process(self: *Module) !void {
     const import_funcs = 0;
 
     for (self.code) |body, i| {
+        std.debug.assert(stack_types.items.len == 0);
+
         const func = self.function[i];
         const func_type = self.@"type"[@enumToInt(func.type_idx)];
         const func_idx = i + import_funcs;
         for (body.code) |instr| {
-            for (instr.op.pop) |pop| {
-                const top = stack_types.popOrNull() orelse return error.StackMismatch;
-                const expected: Module.Type.Value = switch (pop) {
-                    .I32 => .I32,
-                    .I64 => .I64,
-                    .F32 => .F32,
-                    .F64 => .F64,
-                    .Poly => switch (instr.op.code) {
-                        0x1A => continue, // Drops *any* value, no comparison needed
-                        0x21, 0x22 => local_type(instr.arg.U32, func_type.param_types, body.locals),
-                        else => @panic("TODO"),
-                    },
-                };
-                if (expected != top) {
-                    return error.StackMismatch;
-                }
-            }
+            switch (instr.op.code) {
+                0x10 => {
+                    const call_func = self.function[instr.arg.U32];
+                    try processFuncStack(&stack_types, self.@"type"[@enumToInt(call_func.type_idx)]);
+                },
+                0x11 => try processFuncStack(&stack_types, self.@"type"[instr.arg.U32]),
+                else => {
+                    for (instr.op.pop) |pop| {
+                        const top = stack_types.popOrNull() orelse return error.StackMismatch;
+                        const expected: Module.Type.Value = switch (pop) {
+                            .I32 => .I32,
+                            .I64 => .I64,
+                            .F32 => .F32,
+                            .F64 => .F64,
+                            .Poly => switch (instr.op.code) {
+                                0x1A => continue, // Drops *any* value, no comparison needed
+                                0x21, 0x22 => localType(instr.arg.U32, func_type.param_types, body.locals),
+                                else => @panic("TODO"),
+                            },
+                        };
+                        if (expected != top) {
+                            return error.StackMismatch;
+                        }
+                    }
 
-            if (instr.op.push) |push| {
-                try stack_types.append(switch (push) {
-                    .I32 => .I32,
-                    .I64 => .I64,
-                    .F32 => .F32,
-                    .F64 => .F64,
-                    .Poly => switch (instr.op.code) {
-                        0x20, 0x22 => local_type(instr.arg.U32, func_type.param_types, body.locals),
-                        else => @panic("TODO"),
-                    },
-                });
+                    if (instr.op.push) |push| {
+                        try stack_types.append(switch (push) {
+                            .I32 => .I32,
+                            .I64 => .I64,
+                            .F32 => .F32,
+                            .F64 => .F64,
+                            .Poly => switch (instr.op.code) {
+                                0x20, 0x22 => localType(instr.arg.U32, func_type.param_types, body.locals),
+                                else => @panic("TODO"),
+                            },
+                        });
+                    }
+                },
             }
         }
 
@@ -59,7 +70,22 @@ pub fn post_process(self: *Module) !void {
     }
 }
 
-fn local_type(local_idx: u32, params: []Module.Type.Value, locals: []Module.Type.Value) Module.Type.Value {
+fn processFuncStack(stack: *std.ArrayList(Module.Type.Value), func_type: Module.sectionType(.Type)) !void {
+    var i: usize = func_type.param_types.len;
+    while (i > 0) {
+        i -= 1;
+        const param = func_type.param_types[i];
+        const top = stack.popOrNull() orelse return error.StackMismatch;
+        if (param != top) {
+            return error.StackMismatch;
+        }
+    }
+    if (func_type.return_type) |ret| {
+        try stack.append(ret);
+    }
+}
+
+fn localType(local_idx: u32, params: []Module.Type.Value, locals: []Module.Type.Value) Module.Type.Value {
     if (local_idx < params.len) {
         return params[local_idx];
     } else {
