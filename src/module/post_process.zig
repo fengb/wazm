@@ -9,7 +9,12 @@ pub fn post_process(self: *Module) !void {
 
     var stack_types = std.ArrayList(Module.Type.Value).init(&temp_arena.allocator);
 
-    const import_funcs = 0;
+    var import_funcs: usize = 0;
+    for (self.import) |import| {
+        if (import.kind == .Function) {
+            import_funcs += 1;
+        }
+    }
 
     for (self.code) |body, i| {
         std.debug.assert(stack_types.items.len == 0);
