@@ -469,16 +469,18 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 var code = std.ArrayList(Module.Instr).init(&arena.allocator);
                 var val_buf: [0x100]u8 = undefined;
                 while (try command.nextAtom(&val_buf)) |val| {
-                    const op = Op.byName(val) orelse return error.OpNotFound;
+                    const op = std.meta.stringToEnum(Op.Code, val) orelse return error.OpNotFound;
+                    const op_meta = Op.Meta.of(op);
 
                     try code.append(.{
                         .op = op,
+                        .pop_len = @intCast(u8, op_meta.pop.len),
                         .arg = blk: {
-                            if (op.arg_kind == .Void) break :blk .{ .I64 = 0 };
+                            if (op_meta.arg_kind == .Void) break :blk .{ .I64 = 0 };
 
                             var arg_buf: [0x10]u8 = undefined;
                             const arg = try command.obtainAtom(&arg_buf);
-                            break :blk @as(Op.Fixval, switch (op.arg_kind) {
+                            break :blk @as(Op.Fixval, switch (op_meta.arg_kind) {
                                 .Void => unreachable,
                                 .Type => {
                                     break :blk Op.Fixval.init(
@@ -557,7 +559,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     try root.expectEnd();
     try ctx.expectEos();
 
-    return Module{
+    var result = Module{
         .custom = customs.items,
         .@"type" = types.items,
         .import = imports.items,
@@ -573,6 +575,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
         .arena = arena,
     };
+    try result.post_process();
+    return result;
 }
 
 test "parse" {
@@ -596,10 +600,10 @@ test "parse" {
     {
         var fbs = std.io.fixedBufferStream(
             \\(module
-            \\  (func (param i32) (param f32) (result i64) (local f64)
+            \\  (func (param i64) (param f32) (result i64) (local f64)
             \\    local.get 0
-            \\    local.get 1
-            \\    local.get 2))
+            \\    drop
+            \\    local.get 0))
         );
         var module = try parse(std.testing.allocator, fbs.reader());
         defer module.deinit();
@@ -608,7 +612,7 @@ test "parse" {
 
         const func_type = module.@"type"[0];
         std.testing.expectEqual(@as(usize, 2), func_type.param_types.len);
-        std.testing.expectEqual(Module.Type.Value.I32, func_type.param_types[0]);
+        std.testing.expectEqual(Module.Type.Value.I64, func_type.param_types[0]);
         std.testing.expectEqual(Module.Type.Value.F32, func_type.param_types[1]);
         std.testing.expectEqual(Module.Type.Value.I64, func_type.return_type.?);
 
@@ -622,7 +626,7 @@ test "parse" {
     {
         var fbs = std.io.fixedBufferStream(
             \\(module
-            \\  (func (param i32) local.get 0)
+            \\  (func (param i32) (result i32) local.get 0)
             \\  (export "foo" (func 0)))
         );
         var module = try parse(std.testing.allocator, fbs.reader());

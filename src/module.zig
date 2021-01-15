@@ -1,6 +1,7 @@
 const std = @import("std");
 const Instance = @import("instance.zig");
 const Op = @import("op.zig");
+pub const post_process = @import("module/post_process.zig").post_process;
 
 const magic_number = std.mem.readIntLittle(u32, "\x00asm");
 
@@ -193,7 +194,8 @@ pub const ResizableLimits = struct {
 };
 
 pub const Instr = struct {
-    op: Op,
+    op: Op.Code,
+    pop_len: u8,
     arg: Op.Fixval,
 };
 
@@ -471,11 +473,12 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 else => return err,
                             };
 
-                            const op = Op.all[opcode] orelse return error.InvalidOpCode;
+                            const op_meta = Op.Meta.all[opcode] orelse return error.InvalidOpCode;
 
                             try list.append(.{
-                                .op = op,
-                                .arg = switch (op.arg_kind) {
+                                .op = @intToEnum(Op.Code, opcode),
+                                .pop_len = @intCast(u8, op_meta.pop.len),
+                                .arg = switch (op_meta.arg_kind) {
                                     .Void => .{ .I64 = 0 },
                                     .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
                                     .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
@@ -530,6 +533,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
         }
         try expectEos(payload.reader());
     }
+
+    try result.post_process();
 
     return result;
 }
@@ -588,8 +593,8 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 1), module.function.len);
     std.testing.expectEqual(@as(usize, 1), module.code.len);
     std.testing.expectEqual(@as(usize, 2), module.code[0].code.len);
-    std.testing.expectEqualSlices(u8, "i32.const", module.code[0].code[0].op.name);
-    std.testing.expectEqualSlices(u8, "end", module.code[0].code[1].op.name);
+    std.testing.expectEqual(Op.Code.@"i32.const", module.code[0].code[0].op);
+    std.testing.expectEqual(Op.Code.end, module.code[0].code[1].op);
 
     var instance = try module.instantiate(std.testing.allocator, struct {});
     defer instance.deinit();
