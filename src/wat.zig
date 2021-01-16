@@ -44,7 +44,7 @@ fn Sexpr(comptime Reader: type) type {
                 return switch (try self.ctx.scan()) {
                     .OpenParen => Next{ .List = .{ .ctx = self.ctx } },
                     .CloseParen => null,
-                    else => try self.loadIntoBuffer(buffer),
+                    .Atom => try self.loadIntoBuffer(buffer),
                 };
             }
 
@@ -62,7 +62,7 @@ fn Sexpr(comptime Reader: type) type {
                 return switch (try self.ctx.scan()) {
                     .OpenParen => error.ExpectedAtomGotList,
                     .CloseParen => null,
-                    else => try self.loadIntoBuffer(buffer),
+                    .Atom => try self.loadIntoBuffer(buffer),
                 };
             }
 
@@ -72,7 +72,7 @@ fn Sexpr(comptime Reader: type) type {
                 return switch (try self.ctx.scan()) {
                     .OpenParen => List{ .ctx = self.ctx, .stack_level = self.ctx.current_stack },
                     .CloseParen => null,
-                    else => error.ExpectedListGotAtom,
+                    .Atom => error.ExpectedListGotAtom,
                 };
             }
 
@@ -483,15 +483,38 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     try code.append(.{
                         .op = op,
                         .pop_len = @intCast(u8, op_meta.pop.len),
-                        .arg = blk: {
-                            if (op_meta.arg_kind == .Void) break :blk .{ .I64 = 0 };
+                        .arg = switch (op_meta.arg_kind) {
+                            .Void => .{ .I64 = 0 },
+                            .Type => blk: {
+                                const pair = command.obtainList() catch |err| switch (err) {
+                                    error.ExpectedListGotAtom => break :blk Op.Fixval.init(Op.Arg.Type.Void),
+                                    else => |e| return e,
+                                };
+                                var buf: [0x10]u8 = undefined;
+                                if (!std.mem.eql(u8, try pair.obtainAtom(&buf), "result")) {
+                                    return error.ExpectedResult;
+                                }
 
-                            var arg_buf: [0x10]u8 = undefined;
-                            const arg = try command.obtainAtom(&arg_buf);
-                            break :blk @as(Op.Fixval, switch (op_meta.arg_kind) {
-                                .Void => unreachable,
-                                .Type => {
-                                    break :blk Op.Fixval.init(
+                                var index_buf: [0x10]u8 = undefined;
+                                const typ: Op.Arg.Type = switch (swhash.match(try pair.obtainAtom(&index_buf))) {
+                                    swhash.case("void") => .Void,
+                                    swhash.case("i32") => .I32,
+                                    swhash.case("i64") => .I64,
+                                    swhash.case("f32") => .F32,
+                                    swhash.case("f64") => .F64,
+                                    else => return error.ExpectedType,
+                                };
+
+                                try pair.expectEnd();
+                                break :blk Op.Fixval.init(typ);
+                            },
+                            .U32z, .Mem, .Array => @panic("TODO"),
+                            else => blk: {
+                                var arg_buf: [0x10]u8 = undefined;
+                                const arg = try command.obtainAtom(&arg_buf);
+                                break :blk @as(Op.Fixval, switch (op_meta.arg_kind) {
+                                    .Void => unreachable,
+                                    .Type => Op.Fixval.init(
                                         @as(Op.Arg.Type, switch (swhash.match(arg)) {
                                             swhash.case("void") => .Void,
                                             swhash.case("i32") => .I32,
@@ -500,16 +523,16 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                             swhash.case("f64") => .F64,
                                             else => return error.ExpectedType,
                                         }),
-                                    );
-                                },
-                                .I32 => .{ .I32 = try std.fmt.parseInt(i32, arg, 10) },
-                                .U32 => .{ .U32 = try std.fmt.parseInt(u32, arg, 10) },
-                                .I64 => .{ .I64 = try std.fmt.parseInt(i64, arg, 10) },
-                                .U64 => .{ .U64 = try std.fmt.parseInt(u64, arg, 10) },
-                                .F32 => .{ .F32 = try std.fmt.parseFloat(f32, arg) },
-                                .F64 => .{ .F64 = try std.fmt.parseFloat(f64, arg) },
-                                .U32z, .Mem, .Array => @panic(arg),
-                            });
+                                    ),
+                                    .I32 => .{ .I32 = try std.fmt.parseInt(i32, arg, 10) },
+                                    .U32 => .{ .U32 = try std.fmt.parseInt(u32, arg, 10) },
+                                    .I64 => .{ .I64 = try std.fmt.parseInt(i64, arg, 10) },
+                                    .U64 => .{ .U64 = try std.fmt.parseInt(u64, arg, 10) },
+                                    .F32 => .{ .F32 = try std.fmt.parseFloat(f32, arg) },
+                                    .F64 => .{ .F64 = try std.fmt.parseFloat(f64, arg) },
+                                    .U32z, .Mem, .Array => @panic(arg),
+                                });
+                            },
                         },
                     });
                 }
@@ -668,4 +691,34 @@ test "parseNoValidate" {
 
         std.testing.expectEqual(@as(usize, 0), module.function.len);
     }
+}
+
+test "parse blocks" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    block (result i32)
+        \\      block
+        \\      end
+        \\      i32.const 123
+        \\    end))
+    );
+    var module = try parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    const code = module.code[0].code;
+    std.testing.expectEqual(@as(usize, 5), code.len);
+
+    std.testing.expectEqual(Op.Code.block, code[0].op);
+    std.testing.expectEqual(@enumToInt(Op.Arg.Type.I32), code[0].arg.V128);
+
+    std.testing.expectEqual(Op.Code.block, code[1].op);
+    std.testing.expectEqual(@enumToInt(Op.Arg.Type.Void), code[1].arg.V128);
+
+    std.testing.expectEqual(Op.Code.end, code[2].op);
+
+    std.testing.expectEqual(Op.Code.@"i32.const", code[3].op);
+    std.testing.expectEqual(@as(i32, 123), code[3].arg.I32);
+
+    std.testing.expectEqual(Op.Code.end, code[4].op);
 }
