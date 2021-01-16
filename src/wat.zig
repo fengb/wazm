@@ -302,6 +302,14 @@ test "sexpr" {
 }
 
 pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
+    var result = try parseNoValidate(allocator, reader);
+    errdefer result.deinit();
+
+    try result.post_process();
+    return result;
+}
+
+pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var ctx = sexpr(reader);
     const root = try ctx.root();
 
@@ -559,7 +567,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     try root.expectEnd();
     try ctx.expectEos();
 
-    var result = Module{
+    return Module{
         .custom = customs.items,
         .@"type" = types.items,
         .import = imports.items,
@@ -575,14 +583,12 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
         .arena = arena,
     };
-    try result.post_process();
-    return result;
 }
 
-test "parse" {
+test "parseNoValidate" {
     {
         var fbs = std.io.fixedBufferStream("(module)");
-        var module = try parse(std.testing.allocator, fbs.reader());
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 0), module.memory.len);
@@ -591,7 +597,7 @@ test "parse" {
     }
     {
         var fbs = std.io.fixedBufferStream("(module (memory 42))");
-        var module = try parse(std.testing.allocator, fbs.reader());
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 1), module.memory.len);
@@ -605,7 +611,7 @@ test "parse" {
             \\    drop
             \\    local.get 0))
         );
-        var module = try parse(std.testing.allocator, fbs.reader());
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 1), module.function.len);
@@ -629,7 +635,7 @@ test "parse" {
             \\  (func (param i32) (result i32) local.get 0)
             \\  (export "foo" (func 0)))
         );
-        var module = try parse(std.testing.allocator, fbs.reader());
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 1), module.function.len);
@@ -645,7 +651,7 @@ test "parse" {
             \\  (type (;0;) (func (param i32) (result i32)))
             \\  (import "env" "fibonacci" (func (type 0))))
         );
-        var module = try parse(std.testing.allocator, fbs.reader());
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
         std.testing.expectEqual(@as(usize, 1), module.@"type".len);

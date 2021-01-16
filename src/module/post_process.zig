@@ -2,13 +2,14 @@ const std = @import("std");
 
 const Module = @import("../module.zig");
 const Op = @import("../op.zig");
+const Wat = @import("../wat.zig");
 
 pub fn post_process(self: *Module) !void {
     var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
     defer temp_arena.deinit();
 
     var stack_types = std.ArrayList(Module.Type.Value).init(&temp_arena.allocator);
-    var stack_blocks = std.ArrayList(usize).init(&temp_arena.allocator);
+    var stack_blocks = std.ArrayList(struct { instr_idx: usize, block_type: Module.Type.Block }).init(&temp_arena.allocator);
 
     var import_funcs: usize = 0;
     for (self.import) |import| {
@@ -27,34 +28,36 @@ pub fn post_process(self: *Module) !void {
             const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
                 .block, .loop, .@"if" => {
-                    try stack_blocks.append(i);
+                    const result_type = @intToEnum(Op.Arg.Type, instr.arg.V128);
+                    const converted_type: Module.Type.Block = switch (result_type) {
+                        .Void => .Empty,
+                        .I32 => .I32,
+                        .I64 => .I64,
+                        .F32 => .F32,
+                        .F64 => .F64,
+                    };
+                    try stack_blocks.append(.{ .instr_idx = i, .block_type = converted_type });
                 },
-                .end => {
-                    const block_idx = stack_blocks.popOrNull() orelse return error.BlockMismatch;
-                    const block_instr = body.code[block_idx];
-                    const result_type = @intToEnum(Op.Arg.Type, block_instr.arg.V128);
-                    if (result_type != .Void) {
+                .end, .@"else" => {
+                    const block_meta = stack_blocks.popOrNull() orelse return error.BlockMismatch;
+                    if (block_meta.block_type != .Empty) {
                         if (stack_types.items.len == 0) {
                             return error.BlockMismatch;
                         }
                         const last = stack_types.items[stack_types.items.len - 1];
-                        const converted_type: Module.Type.Value = switch (result_type) {
-                            .Void => unreachable,
-                            .I32 => .I32,
-                            .I64 => .I64,
-                            .F32 => .F32,
-                            .F64 => .F64,
-                        };
-                        if (converted_type != last) {
+                        if (@enumToInt(block_meta.block_type) != @enumToInt(last)) {
                             return error.StackMismatch;
                         }
+                    }
 
-                        if (instr.op == .@"else") {
+                    if (instr.op == .@"else") {
+                        if (block_meta.block_type != .Empty) {
                             _ = stack_types.pop();
                         }
+
+                        try stack_blocks.append(.{ .instr_idx = i, .block_type = block_meta.block_type });
                     }
                 },
-                .@"else" => @panic("TODO"),
                 .call => {
                     const call_func = self.function[instr.arg.U32];
                     try processFuncStack(&stack_types, self.@"type"[@enumToInt(call_func.type_idx)]);
@@ -126,10 +129,73 @@ fn processFuncStack(stack: *std.ArrayList(Module.Type.Value), func_type: Module.
     }
 }
 
-fn localType(local_idx: u32, params: []Module.Type.Value, locals: []Module.Type.Value) Module.Type.Value {
+fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) Module.Type.Value {
     if (local_idx < params.len) {
         return params[local_idx];
     } else {
         return locals[local_idx - params.len];
     }
+}
+
+test "smoke" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    i32.const 40
+        \\    i32.const 2
+        \\    i32.add))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    try module.post_process();
+}
+
+test "add nothing" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    i32.add))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    std.testing.expectError(error.StackMismatch, module.post_process());
+}
+
+test "add wrong types" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    i32.const 40
+        \\    i64.const 2
+        \\    i32.add))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    std.testing.expectError(error.StackMismatch, module.post_process());
+}
+
+test "return nothing" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    std.testing.expectError(error.StackMismatch, module.post_process());
+}
+
+test "return wrong type" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    i64.const 40))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    std.testing.expectError(error.StackMismatch, module.post_process());
 }
