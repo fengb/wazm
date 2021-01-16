@@ -13,14 +13,14 @@ arena: std.heap.ArenaAllocator,
 custom: []struct {
     name: []const u8,
     payload: []const u8,
-},
+} = &.{},
 
 /// Code=1
 @"type": []struct {
     form: Type.Form, // TODO: why is this called form?
     param_types: []Type.Value,
     return_type: ?Type.Value,
-},
+} = &.{},
 
 /// Code=2
 import: []struct {
@@ -33,23 +33,23 @@ import: []struct {
         Memory: void,
         Global: void,
     },
-},
+} = &.{},
 
 /// Code=3
 function: []struct {
     type_idx: Index.FuncType,
-},
+} = &.{},
 
 /// Code=4
 table: []struct {
     element_type: Type.Elem,
     limits: ResizableLimits,
-},
+} = &.{},
 
 /// Code=5
 memory: []struct {
     limits: ResizableLimits,
-},
+} = &.{},
 
 /// Code=6
 global: []struct {
@@ -58,39 +58,39 @@ global: []struct {
         mutability: bool,
     },
     init: InitExpr,
-},
+} = &.{},
 
 /// Code=7
 @"export": []struct {
     field: []const u8,
     kind: ExternalKind,
     index: u32,
-},
+} = &.{},
 
 /// Code=8
 start: ?struct {
     index: Index.Function,
-},
+} = null,
 
 /// Code=9
 element: []struct {
     index: Index.Table,
     offset: InitExpr,
     elems: []Index.Function,
-},
+} = &.{},
 
 /// Code=10
 code: []struct {
     locals: []Type.Value,
     code: []Module.Instr,
-},
+} = &.{},
 
 /// Code=11
 data: []struct {
     index: Index.Memory,
     offset: InitExpr,
     data: []const u8,
-},
+} = &.{},
 
 jumps: InstrJumps = .{},
 
@@ -101,18 +101,7 @@ pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }
 });
 
 pub fn init(arena: std.heap.ArenaAllocator) Module {
-    var result: Module = undefined;
-    result.arena = arena;
-    result.jumps = .{};
-
-    inline for (std.meta.fields(Module)) |field| {
-        comptime const needs_zero = !std.mem.eql(u8, field.name, "arena") and !std.mem.eql(u8, field.name, "jumps");
-
-        if (needs_zero) {
-            @field(result, field.name) = std.mem.zeroes(field.field_type);
-        }
-    }
-    return result;
+    return Module{ .arena = arena };
 }
 
 pub fn deinit(self: *Module) void {
