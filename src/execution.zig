@@ -159,7 +159,7 @@ pub fn unwindCall(self: *Execution) ?Op.Fixval {
     return result;
 }
 
-pub fn jump(self: *Execution, target_idx: u32) void {
+pub fn jump(self: *Execution, table_idx: ?u32) void {
     const meta = self.jumps.get(.{
         .func = self.current_frame.func,
         .instr = self.current_frame.instr - 1,
@@ -172,7 +172,14 @@ pub fn jump(self: *Execution, target_idx: u32) void {
 
     self.dropN(meta.stack_unroll);
 
-    self.current_frame.instr = meta.targets[target_idx];
+    self.current_frame.instr = if (table_idx) |idx|
+        meta.target.table[idx]
+    else
+        meta.target.single;
+
+    if (result) |value| {
+        self.push(Op.Fixval, value) catch unreachable;
+    }
 }
 
 pub fn dropN(self: *Execution, size: usize) void {

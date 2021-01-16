@@ -402,13 +402,13 @@ const Impl = struct {
 
     pub fn @"0x04 if"(ctx: *Execution, arg: Arg.Type, pop: *I32) void {
         if (pop.data == 0) {
-            ctx.jump(0);
+            ctx.jump(null);
         }
     }
 
     pub fn @"0x05 else"(ctx: *Execution, arg: Void, pop: *Void) void {
         // If we are executing this instruction, it means the `if` fired, so we should skip until the end
-        ctx.jump(0);
+        ctx.jump(null);
     }
 
     pub fn @"0x0B end"(ctx: *Execution, arg: Void, pop: *Void) void {
@@ -418,11 +418,11 @@ const Impl = struct {
     }
 
     pub fn @"0x0C br"(ctx: *Execution, arg: U32, pop: *Void) void {
-        ctx.jump(0);
+        ctx.jump(null);
     }
     pub fn @"0x0D br_if"(ctx: *Execution, arg: U32, pop: *I32) void {
         if (pop.data != 0) {
-            ctx.jump(0);
+            ctx.jump(null);
         }
     }
     pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Array, pop: *U32) void {
