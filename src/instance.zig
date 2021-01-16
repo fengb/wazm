@@ -13,7 +13,7 @@ exports: std.StringHashMap(Export),
 funcs: []Func,
 
 // TODO: revisit if wasm ever becomes multi-threaded
-mutex: std.Mutex,
+mutex: std.Thread.Mutex,
 
 pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: type) !Instance {
     var exports = std.StringHashMap(Export).init(allocator);
@@ -68,7 +68,7 @@ pub fn init(module: *Module, allocator: *std.mem.Allocator, comptime Imports: ty
 
     return Instance{
         .module = module,
-        .mutex = std.Mutex{},
+        .mutex = .{},
         .memory = try allocator.alloc(u8, 65536),
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
