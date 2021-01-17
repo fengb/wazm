@@ -4,10 +4,10 @@ const Instance = @import("instance.zig");
 const Execution = @import("execution.zig");
 
 /// Timestamp in nanoseconds.
-pub const timestamp = u64;
+pub const Timestamp = u64;
 
 /// Identifiers for clocks.
-pub const clockid = enum(u32) {
+pub const ClockId = enum(u32) {
     /// The clock measuring real time. Time value zero corresponds with 1970-01-01T00:00:00Z.
     realtime = 0,
 
@@ -23,7 +23,7 @@ pub const clockid = enum(u32) {
 };
 
 /// Error codes returned by functions. Not all of these error codes are returned by the functions provided by this API; some are used in higher-level library layers, and others are provided merely for alignment with POSIX.
-pub const errno = enum(u32) {
+pub const Errno = enum(u32) {
     success = 0,
     inval = 28,
     unexpected = 0xAAAA,
@@ -40,42 +40,48 @@ pub fn P(comptime T: type) type {
 
 pub fn Context(cache_bust: anytype) type {
     return struct {
-        // (clock_id: clockid_t, resolution: *timestamp_t) -> errno_t
-        pub fn clock_res_get(ctx: *Execution, clock_id: clockid, resolution: P(timestamp)) errno {
+        pub fn clock_res_get(ctx: *Execution, clock_id: ClockId, resolution: P(Timestamp)) Errno {
             const clk: i32 = switch (clock_id) {
                 .realtime => std.os.CLOCK_REALTIME,
                 .monotonic => std.os.CLOCK_MONOTONIC,
                 .process_cputime_id => std.os.CLOCK_PROCESS_CPUTIME_ID,
                 .thread_cputime_id => std.os.CLOCK_THREAD_CPUTIME_ID,
-                else => return errno.inval,
+                else => return Errno.inval,
             };
 
             var result: std.os.timespec = undefined;
             std.os.clock_getres(clk, &result) catch |err| switch (err) {
-                error.UnsupportedClock => return errno.inval,
-                error.Unexpected => return errno.unexpected,
+                error.UnsupportedClock => return Errno.inval,
+                error.Unexpected => return Errno.unexpected,
             };
-            _ = @intCast(timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec);
-            return errno.success;
+            std.mem.writeIntSliceLittle(
+                Timestamp,
+                ctx.memory[@enumToInt(resolution)..],
+                @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec),
+            );
+            return Errno.success;
         }
 
-        // (clock_id: clockid_t, precision: timestamp_t, time: *timestamp_t) -> errno_t
-        pub fn clock_time_get(ctx: *Execution, clock_id: clockid, precision: timestamp, time: P(timestamp)) errno {
+        pub fn clock_time_get(ctx: *Execution, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) Errno {
             const clk: i32 = switch (clock_id) {
                 .realtime => std.os.CLOCK_REALTIME,
                 .monotonic => std.os.CLOCK_MONOTONIC,
                 .process_cputime_id => std.os.CLOCK_PROCESS_CPUTIME_ID,
                 .thread_cputime_id => std.os.CLOCK_THREAD_CPUTIME_ID,
-                else => return errno.inval,
+                else => return Errno.inval,
             };
 
             var result: std.os.timespec = undefined;
             std.os.clock_gettime(clk, &result) catch |err| switch (err) {
-                error.UnsupportedClock => return errno.inval,
-                error.Unexpected => return errno.unexpected,
+                error.UnsupportedClock => return Errno.inval,
+                error.Unexpected => return Errno.unexpected,
             };
-            _ = @intCast(timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec);
-            return errno.success;
+            std.mem.writeIntSliceLittle(
+                Timestamp,
+                ctx.memory[@enumToInt(time)..],
+                @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec),
+            );
+            return Errno.success;
         }
     };
 }
