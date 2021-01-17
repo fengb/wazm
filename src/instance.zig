@@ -161,23 +161,34 @@ pub fn ImportManager(comptime Imports: type) type {
     };
 
     const helpers = struct {
-        fn wrap(comptime func: anytype) ImportFunc {
+        fn Unwrapped(comptime T: type) type {
+            return switch (@typeInfo(T)) {
+                .Enum => |e_info| if (e_info.is_exhaustive) @compileError("Enum must be exhaustive") else e_info.tag_type,
+                else => T,
+            };
+        }
+
+        fn shim(comptime func: anytype) ImportFunc {
             return struct {
-                pub fn wrapped(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
+                pub fn shimmed(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
                     var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
                     args[0] = ctx;
                     inline for (std.meta.fields(@TypeOf(args))) |f, i| {
                         if (i == 0) continue;
 
-                        switch (f.field_type) {
-                            i32 => args[i] = params[i - 1].I32,
-                            i64 => args[i] = params[i - 1].I64,
-                            u32 => args[i] = params[i - 1].U32,
-                            u64 => args[i] = params[i - 1].U64,
-                            f32 => args[i] = params[i - 1].F32,
-                            f64 => args[i] = params[i - 1].F64,
+                        const raw_value = switch (Unwrapped(f.field_type)) {
+                            i32 => params[i - 1].I32,
+                            i64 => params[i - 1].I64,
+                            u32 => params[i - 1].U32,
+                            u64 => params[i - 1].U64,
+                            f32 => params[i - 1].F32,
+                            f64 => params[i - 1].F64,
                             else => @compileError("Signature not supported"),
-                        }
+                        };
+                        args[i] = if (@typeInfo(f.field_type) == .Enum)
+                            @intToEnum(f.field_type, raw_value)
+                        else
+                            raw_value;
                     }
 
                     // TODO: move async call to where this is being invoked
@@ -189,22 +200,26 @@ pub fn ImportManager(comptime Imports: type) type {
                     // const result = nosuspend await frame;
 
                     const result = @call(.{}, func, args);
-                    return switch (@TypeOf(result)) {
+                    const raw_result = if (@typeInfo(@TypeOf(result)) == .Enum)
+                        @enumToInt(result)
+                    else
+                        result;
+                    return switch (Unwrapped(@TypeOf(result))) {
                         void => null,
-                        i32 => Op.Fixval{ .I32 = result },
-                        i64 => Op.Fixval{ .I64 = result },
-                        u32 => Op.Fixval{ .U32 = result },
-                        u64 => Op.Fixval{ .U64 = result },
-                        f32 => Op.Fixval{ .F32 = result },
-                        f64 => Op.Fixval{ .F64 = result },
+                        i32 => Op.Fixval{ .I32 = raw_result },
+                        i64 => Op.Fixval{ .I64 = raw_result },
+                        u32 => Op.Fixval{ .U32 = raw_result },
+                        u64 => Op.Fixval{ .U64 = raw_result },
+                        f32 => Op.Fixval{ .F32 = raw_result },
+                        f64 => Op.Fixval{ .F64 = raw_result },
                         else => @compileError("Signature not supported"),
                     };
                 }
-            }.wrapped;
+            }.shimmed;
         }
 
         fn mapType(comptime T: type) ?Module.Type.Value {
-            return switch (T) {
+            return switch (Unwrapped(T)) {
                 void => null,
                 i32, u32 => .I32,
                 i64, u64 => .I64,
@@ -224,12 +239,12 @@ pub fn ImportManager(comptime Imports: type) type {
                 if (decl2.is_pub) {
                     const func = @field(decl.data.Type, decl2.name);
                     const fn_info = @typeInfo(@TypeOf(func)).Fn;
-                    const wrapped = helpers.wrap(func);
+                    const shimmed = helpers.shim(func);
                     kvs = kvs ++ [1]KV{.{
                         .@"0" = decl.name ++ sep ++ decl2.name,
                         .@"1" = .{
-                            .func = wrapped,
-                            .frame_size = @sizeOf(@Frame(wrapped)),
+                            .func = shimmed,
+                            .frame_size = @sizeOf(@Frame(shimmed)),
                             .param_types = params: {
                                 var param_types: [fn_info.args.len - 1]Module.Type.Value = undefined;
                                 for (param_types) |*param, i| {
