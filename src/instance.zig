@@ -148,7 +148,7 @@ pub const Export = union(enum) {
     Global: usize,
 };
 
-fn ImportManager(comptime Imports: type) type {
+pub fn ImportManager(comptime Imports: type) type {
     const V = struct {
         func: ImportFunc,
         frame_size: usize,

@@ -10,4 +10,5 @@ test "" {
     _ = Wat;
     _ = @import("func/basic.zig");
     _ = @import("func/imports.zig");
+    _ = @import("wasi.zig");
 }
