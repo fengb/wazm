@@ -7,7 +7,7 @@ const util = @import("util.zig");
 const Execution = @This();
 
 memory: []u8,
-funcs: []Instance.Func,
+funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
 jumps: Module.InstrJumps,
 

@@ -10,20 +10,20 @@ const Module = @This();
 arena: std.heap.ArenaAllocator,
 
 /// Code=0
-custom: []struct {
+custom: []const struct {
     name: []const u8,
     payload: []const u8,
 } = &.{},
 
 /// Code=1
-@"type": []struct {
+@"type": []const struct {
     form: Type.Form, // TODO: why is this called form?
-    param_types: []Type.Value,
+    param_types: []const Type.Value,
     return_type: ?Type.Value,
 } = &.{},
 
 /// Code=2
-import: []struct {
+import: []const struct {
     module: []const u8,
     field: []const u8,
     kind: union(ExternalKind) {
@@ -36,23 +36,23 @@ import: []struct {
 } = &.{},
 
 /// Code=3
-function: []struct {
+function: []const struct {
     type_idx: Index.FuncType,
 } = &.{},
 
 /// Code=4
-table: []struct {
+table: []const struct {
     element_type: Type.Elem,
     limits: ResizableLimits,
 } = &.{},
 
 /// Code=5
-memory: []struct {
+memory: []const struct {
     limits: ResizableLimits,
 } = &.{},
 
 /// Code=6
-global: []struct {
+global: []const struct {
     @"type": struct {
         content_type: Type.Value,
         mutability: bool,
@@ -61,7 +61,7 @@ global: []struct {
 } = &.{},
 
 /// Code=7
-@"export": []struct {
+@"export": []const struct {
     field: []const u8,
     kind: ExternalKind,
     index: u32,
@@ -73,20 +73,20 @@ start: ?struct {
 } = null,
 
 /// Code=9
-element: []struct {
+element: []const struct {
     index: Index.Table,
     offset: InitExpr,
-    elems: []Index.Function,
+    elems: []const Index.Function,
 } = &.{},
 
 /// Code=10
-code: []struct {
-    locals: []Type.Value,
-    code: []Module.Instr,
+code: []const struct {
+    locals: []const Type.Value,
+    code: []const Module.Instr,
 } = &.{},
 
 /// Code=11
-data: []struct {
+data: []const struct {
     index: Index.Memory,
     offset: InitExpr,
     data: []const u8,
@@ -99,7 +99,7 @@ pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }
     stack_unroll: u32,
     target: union {
         single: u32,
-        table: [*]u32, // len = args.len
+        table: [*]const u32, // len = args.len
     },
 });
 
@@ -289,9 +289,10 @@ test "ClampedReader" {
     std.testing.expectError(error.EndOfStream, clamped_reader.reader().readByte());
 }
 
-fn ErrorOf(comptime Func: type) type {
-    const R = @typeInfo(Func).Fn.return_type.?;
-    return @typeInfo(R).ErrorUnion.error_set;
+fn Mut(comptime T: type) type {
+    var ptr_info = @typeInfo(T).Pointer;
+    ptr_info.is_const = false;
+    return @Type(.{ .Pointer = ptr_info });
 }
 
 // --- Before ---
@@ -302,12 +303,13 @@ fn ErrorOf(comptime Func: type) type {
 // --- After ---
 // const count = try readVarint(u32, payload.reader());
 // for (self.allocInto(&result.field, count)) |*item| {
-fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !std.meta.Child(@TypeOf(ptr_to_slice)) {
-    const Slice = std.meta.Child(@TypeOf(ptr_to_slice));
+fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !Mut(std.meta.Child(@TypeOf(ptr_to_slice))) {
+    const Slice = Mut(std.meta.Child(@TypeOf(ptr_to_slice)));
     std.debug.assert(@typeInfo(Slice).Pointer.size == .Slice);
 
-    ptr_to_slice.* = try self.arena.allocator.alloc(std.meta.Child(Slice), count);
-    return ptr_to_slice.*;
+    var result = try self.arena.allocator.alloc(std.meta.Child(Slice), count);
+    ptr_to_slice.* = result;
+    return result;
 }
 
 pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {

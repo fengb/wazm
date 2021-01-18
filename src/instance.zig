@@ -10,7 +10,7 @@ module: *Module,
 memory: []u8,
 allocator: *std.mem.Allocator,
 exports: std.StringHashMap(Export),
-funcs: []Func,
+funcs: []const Func,
 
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
@@ -152,7 +152,7 @@ pub fn ImportManager(comptime Imports: type) type {
     const V = struct {
         func: ImportFunc,
         frame_size: usize,
-        param_types: []Module.Type.Value,
+        param_types: []const Module.Type.Value,
         return_type: ?Module.Type.Value,
     };
     const KV = struct {
@@ -282,15 +282,15 @@ const ImportFunc = fn (ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?
 
 pub const Func = struct {
     func_type: usize,
-    params: []Module.Type.Value,
+    params: []const Module.Type.Value,
     result: ?Module.Type.Value,
-    locals: []Module.Type.Value,
+    locals: []const Module.Type.Value,
     kind: union(enum) {
         imported: struct {
             func: ImportFunc,
             frame_size: usize,
         },
-        instrs: []Module.Instr,
+        instrs: []const Module.Instr,
     },
 };
 
