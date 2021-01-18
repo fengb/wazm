@@ -165,7 +165,7 @@ pub fn jump(self: *Execution, table_idx: ?u32) void {
         .instr = self.current_frame.instr - 1,
     }).?;
 
-    const result = if (meta.return_type) |_|
+    const result = if (meta.has_value)
         self.peek(Op.Fixval)
     else
         null;

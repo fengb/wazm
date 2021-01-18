@@ -698,27 +698,31 @@ test "parse blocks" {
         \\(module
         \\  (func (result i32)
         \\    block (result i32)
-        \\      block
+        \\      loop
+        \\      br 0
+        \\      br 1
         \\      end
-        \\      i32.const 123
         \\    end))
     );
     var module = try parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
     const code = module.code[0].code;
-    std.testing.expectEqual(@as(usize, 5), code.len);
+    std.testing.expectEqual(@as(usize, 6), code.len);
 
     std.testing.expectEqual(Op.Code.block, code[0].op);
     std.testing.expectEqual(@enumToInt(Op.Arg.Type.I32), code[0].arg.V128);
 
-    std.testing.expectEqual(Op.Code.block, code[1].op);
+    std.testing.expectEqual(Op.Code.loop, code[1].op);
     std.testing.expectEqual(@enumToInt(Op.Arg.Type.Void), code[1].arg.V128);
 
-    std.testing.expectEqual(Op.Code.end, code[2].op);
+    std.testing.expectEqual(Op.Code.br, code[2].op);
+    std.testing.expectEqual(@as(u32, 0), code[2].arg.U32);
 
-    std.testing.expectEqual(Op.Code.@"i32.const", code[3].op);
-    std.testing.expectEqual(@as(i32, 123), code[3].arg.I32);
+    std.testing.expectEqual(Op.Code.br, code[3].op);
+    std.testing.expectEqual(@as(u32, 1), code[3].arg.U32);
 
     std.testing.expectEqual(Op.Code.end, code[4].op);
+
+    std.testing.expectEqual(Op.Code.end, code[5].op);
 }

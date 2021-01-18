@@ -95,7 +95,7 @@ data: []const struct {
 jumps: InstrJumps = .{},
 
 pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, struct {
-    return_type: ?Type.Value,
+    has_value: bool,
     stack_unroll: u32,
     target: union {
         single: u32,
