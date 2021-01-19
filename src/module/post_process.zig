@@ -4,15 +4,62 @@ const Module = @import("../module.zig");
 const Op = @import("../op.zig");
 const Wat = @import("../wat.zig");
 
+const StackCheck = struct {
+    top: ?*Node,
+    list: std.ArrayList(?Node),
+
+    const Node = struct {
+        @"type": Module.Type.Value,
+        prev: ?*Node,
+    };
+
+    pub fn init(allocator: *std.mem.Allocator) StackCheck {
+        return .{
+            .top = null,
+            .list = std.ArrayList(?Node).init(allocator),
+        };
+    }
+
+    pub fn reset(self: *StackCheck, size: usize) !void {
+        self.top = null;
+        self.list.shrinkRetainingCapacity(0);
+        try self.list.ensureCapacity(size);
+    }
+
+    pub fn setPush(self: *StackCheck, idx: usize, typ: ?Module.Type.Value) !void {
+        std.debug.assert(idx == self.list.items.len);
+        if (typ) |typ_| {
+            self.list.appendAssumeCapacity(Node{ .@"type" = typ_, .prev = self.top });
+            self.top = &self.list.items[idx].?;
+        } else {
+            self.list.appendAssumeCapacity(if (self.top) |top| top.* else null);
+        }
+    }
+
+    pub fn popType(self: *StackCheck) !Module.Type.Value {
+        if (self.top) |top| {
+            self.top = top.prev;
+            return top.@"type";
+        } else {
+            return error.StackMismatch;
+        }
+    }
+
+    pub fn popTypes(self: *StackCheck, many: []const Module.Type.Value) !void {
+        var i: usize = many.len;
+        while (i > 0) {
+            i -= 1;
+            const param = many[i];
+            if (param != try self.popType()) {
+                return error.StackMismatch;
+            }
+        }
+    }
+};
+
 pub fn post_process(self: *Module) !void {
     var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
     defer temp_arena.deinit();
-
-    var stack_types = std.ArrayList(Module.Type.Value).init(&temp_arena.allocator);
-    var stack_blocks = std.ArrayList(usize).init(&temp_arena.allocator);
-
-    var block_metas = std.AutoHashMap(usize, struct { op: Op.Code, block_type: Module.Type.Block, stack_size: usize, jump_target: usize }).init(&temp_arena.allocator);
-    var jump_matches = std.ArrayList(struct { instr_idx: usize, block_instr: usize }).init(&temp_arena.allocator);
 
     var import_funcs: usize = 0;
     for (self.import) |import| {
@@ -21,24 +68,98 @@ pub fn post_process(self: *Module) !void {
         }
     }
 
+    var stack_check = StackCheck.init(&temp_arena.allocator);
+
+    var stack_blocks = std.ArrayList(usize).init(&temp_arena.allocator);
+    var block_metas = std.AutoHashMap(usize, struct { op: Op.Code, block_type: Module.Type.Block, jump_target: usize }).init(&temp_arena.allocator);
+    var jump_matches = std.ArrayList(struct { instr_idx: usize, block_instr: usize }).init(&temp_arena.allocator);
+
     for (self.code) |body, f| {
-        std.debug.assert(stack_types.items.len == 0);
+        const func = self.function[f];
+        const func_type = self.@"type"[@enumToInt(func.type_idx)];
+        const func_idx = f + import_funcs;
+
+        std.debug.assert(stack_check.top == null);
+        try stack_check.reset(body.code.len);
+
+        for (body.code) |instr, instr_idx| {
+            const op_meta = Op.Meta.of(instr.op);
+            switch (instr.op) {
+                .call => {
+                    const call_func = self.function[instr.arg.U32];
+                    const call_type = self.@"type"[@enumToInt(call_func.type_idx)];
+                    try stack_check.popTypes(call_type.param_types);
+                    try stack_check.setPush(instr_idx, call_type.return_type);
+                },
+                .call_indirect => {
+                    const call_type = self.@"type"[instr.arg.U32];
+                    try stack_check.popTypes(call_type.param_types);
+                    try stack_check.setPush(instr_idx, call_type.return_type);
+                },
+                .@"else" => @panic("TODO: handle if blockvalue else"),
+                // Drops *any* value, no comparison needed
+                .drop => _ = try stack_check.popType(),
+                else => {
+                    for (op_meta.pop) |pop| {
+                        const expected: Module.Type.Value = switch (pop) {
+                            .I32 => .I32,
+                            .I64 => .I64,
+                            .F32 => .F32,
+                            .F64 => .F64,
+                            .Poly => switch (instr.op) {
+                                .@"local.set", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
+                                else => @panic("TODO"),
+                            },
+                        };
+                        if (expected != try stack_check.popType()) {
+                            return error.StackMismatch;
+                        }
+                    }
+
+                    if (op_meta.push) |push| {
+                        try stack_check.setPush(instr_idx, switch (push) {
+                            .I32 => .I32,
+                            .I64 => .I64,
+                            .F32 => .F32,
+                            .F64 => .F64,
+                            .Poly => switch (instr.op) {
+                                .@"local.get", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
+                                else => @panic("TODO"),
+                            },
+                        });
+                    } else {
+                        try stack_check.setPush(instr_idx, null);
+                    }
+                },
+            }
+        }
+
+        std.debug.assert(stack_check.list.items.len == body.code.len);
+        if (func_type.return_type) |return_type| {
+            if (return_type != try stack_check.popType()) {
+                return error.StackMismatch;
+            }
+        }
+
+        if (stack_check.top != null) {
+            return error.StackMismatch;
+        }
+
+        // Block checks
 
         stack_blocks.shrinkRetainingCapacity(0);
         block_metas.clearRetainingCapacity();
         jump_matches.shrinkRetainingCapacity(0);
 
-        const func = self.function[f];
-        const func_type = self.@"type"[@enumToInt(func.type_idx)];
-        const func_idx = f + import_funcs;
         for (body.code) |instr, instr_idx| {
             const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
-                .br, .br_if, .br_table => {
+                .br, .br_if => {
                     const block_stack_idx = std.math.sub(usize, stack_blocks.items.len, 1 + instr.arg.U32) catch return error.JumpExceedsBlock;
                     const target_block = stack_blocks.items[block_stack_idx];
                     try jump_matches.append(.{ .instr_idx = instr_idx, .block_instr = target_block });
                 },
+                .br_table => @panic("TODO"),
                 .block, .loop, .@"if" => {
                     if (instr.op == .@"if") {
                         // "if" is its own jump
@@ -56,7 +177,6 @@ pub fn post_process(self: *Module) !void {
                     try block_metas.putNoClobber(instr_idx, .{
                         .op = instr.op,
                         .block_type = converted_type,
-                        .stack_size = stack_types.items.len,
                         .jump_target = undefined,
                     });
                 },
@@ -65,11 +185,8 @@ pub fn post_process(self: *Module) !void {
                     var block_meta = block_metas.get(block_instr).?;
 
                     if (block_meta.block_type != .Empty) {
-                        if (stack_types.items.len == 0) {
-                            return error.BlockMismatch;
-                        }
-                        const last = stack_types.items[stack_types.items.len - 1];
-                        if (@enumToInt(block_meta.block_type) != @enumToInt(last)) {
+                        const top = stack_check.list.items[instr_idx].?;
+                        if (@enumToInt(block_meta.block_type) != @enumToInt(top.@"type")) {
                             return error.StackMismatch;
                         }
                     }
@@ -85,56 +202,16 @@ pub fn post_process(self: *Module) !void {
                         if (block_meta.op != .@"if") {
                             return error.ElseWithoutIf;
                         }
-                        if (block_meta.block_type != .Empty) {
-                            _ = stack_types.pop();
-                        }
 
                         try stack_blocks.append(instr_idx);
                         try block_metas.putNoClobber(instr_idx, .{
                             .op = instr.op,
                             .block_type = block_meta.block_type,
-                            .stack_size = stack_types.items.len,
                             .jump_target = undefined,
                         });
                     }
                 },
-                .call => {
-                    const call_func = self.function[instr.arg.U32];
-                    try processFuncStack(&stack_types, self.@"type"[@enumToInt(call_func.type_idx)]);
-                },
-                .call_indirect => try processFuncStack(&stack_types, self.@"type"[instr.arg.U32]),
-                else => {
-                    for (op_meta.pop) |pop| {
-                        const top = stack_types.popOrNull() orelse return error.StackMismatch;
-                        const expected: Module.Type.Value = switch (pop) {
-                            .I32 => .I32,
-                            .I64 => .I64,
-                            .F32 => .F32,
-                            .F64 => .F64,
-                            .Poly => switch (instr.op) {
-                                .drop => continue, // Drops *any* value, no comparison needed
-                                .@"local.set", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
-                                else => @panic("TODO"),
-                            },
-                        };
-                        if (expected != top) {
-                            return error.StackMismatch;
-                        }
-                    }
-
-                    if (op_meta.push) |push| {
-                        try stack_types.append(switch (push) {
-                            .I32 => .I32,
-                            .I64 => .I64,
-                            .F32 => .F32,
-                            .F64 => .F64,
-                            .Poly => switch (instr.op) {
-                                .@"local.get", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
-                                else => @panic("TODO"),
-                            },
-                        });
-                    }
-                },
+                else => {},
             }
         }
 
@@ -154,31 +231,6 @@ pub fn post_process(self: *Module) !void {
         if (stack_blocks.items.len != 0) {
             return error.BlockMismatch;
         }
-
-        if (func_type.return_type) |return_type| {
-            if (stack_types.items.len != 1 or stack_types.pop() != return_type) {
-                return error.StackMismatch;
-            }
-        } else {
-            if (stack_types.items.len != 0) {
-                return error.StackMismatch;
-            }
-        }
-    }
-}
-
-fn processFuncStack(stack: *std.ArrayList(Module.Type.Value), func_type: Module.sectionType(.Type)) !void {
-    var i: usize = func_type.param_types.len;
-    while (i > 0) {
-        i -= 1;
-        const param = func_type.param_types[i];
-        const top = stack.popOrNull() orelse return error.StackMismatch;
-        if (param != top) {
-            return error.StackMismatch;
-        }
-    }
-    if (func_type.return_type) |ret| {
-        try stack.append(ret);
     }
 }
 
