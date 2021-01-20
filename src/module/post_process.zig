@@ -37,20 +37,22 @@ const StackCheck = struct {
     }
 
     pub fn popType(self: *StackCheck) !Module.Type.Value {
-        if (self.top) |top| {
-            self.top = top.prev;
-            return top.@"type";
-        } else {
+        const top = self.top orelse return error.StackMismatch;
+        self.top = top.prev;
+        return top.@"type";
+    }
+
+    pub fn topCheck(self: StackCheck, typ: Module.Type.Value) !void {
+        if (self.top == null or self.top.?.@"type" != typ) {
             return error.StackMismatch;
         }
     }
 
-    pub fn popTypes(self: *StackCheck, many: []const Module.Type.Value) !void {
-        var i: usize = many.len;
+    pub fn popTypesCheck(self: *StackCheck, checks: []const Module.Type.Value) !void {
+        var i: usize = checks.len;
         while (i > 0) {
             i -= 1;
-            const param = many[i];
-            if (param != try self.popType()) {
+            if (checks[i] != try self.popType()) {
                 return error.StackMismatch;
             }
         }
@@ -88,17 +90,28 @@ pub fn post_process(self: *Module) !void {
                 .call => {
                     const call_func = self.function[instr.arg.U32];
                     const call_type = self.@"type"[@enumToInt(call_func.type_idx)];
-                    try stack_check.popTypes(call_type.param_types);
+                    try stack_check.popTypesCheck(call_type.param_types);
                     try stack_check.setPush(instr_idx, call_type.return_type);
                 },
                 .call_indirect => {
                     const call_type = self.@"type"[instr.arg.U32];
-                    try stack_check.popTypes(call_type.param_types);
+                    try stack_check.popTypesCheck(call_type.param_types);
                     try stack_check.setPush(instr_idx, call_type.return_type);
                 },
+
                 .@"else" => @panic("TODO: handle if blockvalue else"),
-                // Drops *any* value, no comparison needed
+
+                .@"local.tee" => try stack_check.topCheck(localType(instr.arg.U32, func_type.param_types, body.locals)),
+                .@"local.set" => try stack_check.popTypesCheck(&.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
+                .@"local.get" => try stack_check.setPush(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
+
+                // Technically pops off 2 elements, makes sure they're the same, and pushes 1 back on
+                // But we can just pop 1 off and compare it to the remaining top
+                .select => try stack_check.topCheck(try stack_check.popType()),
+
+                // Drops *any* value, no check needed
                 .drop => _ = try stack_check.popType(),
+
                 else => {
                     for (op_meta.pop) |pop| {
                         const expected: Module.Type.Value = switch (pop) {
@@ -106,14 +119,9 @@ pub fn post_process(self: *Module) !void {
                             .I64 => .I64,
                             .F32 => .F32,
                             .F64 => .F64,
-                            .Poly => switch (instr.op) {
-                                .@"local.set", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
-                                else => @panic("TODO"),
-                            },
+                            .Poly => unreachable,
                         };
-                        if (expected != try stack_check.popType()) {
-                            return error.StackMismatch;
-                        }
+                        try stack_check.popTypesCheck(&.{expected});
                     }
 
                     if (op_meta.push) |push| {
@@ -122,23 +130,20 @@ pub fn post_process(self: *Module) !void {
                             .I64 => .I64,
                             .F32 => .F32,
                             .F64 => .F64,
-                            .Poly => switch (instr.op) {
-                                .@"local.get", .@"local.tee" => localType(instr.arg.U32, func_type.param_types, body.locals),
-                                else => @panic("TODO"),
-                            },
+                            .Poly => unreachable,
                         });
-                    } else {
-                        try stack_check.setPush(instr_idx, null);
                     }
                 },
+            }
+            // Didn't push anything on -- copy the existing top over
+            if (stack_check.list.items.len == instr_idx) {
+                try stack_check.setPush(instr_idx, null);
             }
         }
 
         std.debug.assert(stack_check.list.items.len == body.code.len);
         if (func_type.return_type) |return_type| {
-            if (return_type != try stack_check.popType()) {
-                return error.StackMismatch;
-            }
+            try stack_check.popTypesCheck(&.{return_type});
         }
 
         if (stack_check.top != null) {
