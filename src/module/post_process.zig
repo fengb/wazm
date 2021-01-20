@@ -4,61 +4,6 @@ const Module = @import("../module.zig");
 const Op = @import("../op.zig");
 const Wat = @import("../wat.zig");
 
-const StackCheck = struct {
-    top: ?*Node,
-    list: std.ArrayList(?Node),
-
-    const Node = struct {
-        @"type": Module.Type.Value,
-        prev: ?*Node,
-    };
-
-    pub fn init(allocator: *std.mem.Allocator) StackCheck {
-        return .{
-            .top = null,
-            .list = std.ArrayList(?Node).init(allocator),
-        };
-    }
-
-    pub fn reset(self: *StackCheck, size: usize) !void {
-        self.top = null;
-        self.list.shrinkRetainingCapacity(0);
-        try self.list.ensureCapacity(size);
-    }
-
-    pub fn setPush(self: *StackCheck, idx: usize, typ: ?Module.Type.Value) !void {
-        std.debug.assert(idx == self.list.items.len);
-        if (typ) |typ_| {
-            self.list.appendAssumeCapacity(Node{ .@"type" = typ_, .prev = self.top });
-            self.top = &self.list.items[idx].?;
-        } else {
-            self.list.appendAssumeCapacity(if (self.top) |top| top.* else null);
-        }
-    }
-
-    pub fn popType(self: *StackCheck) !Module.Type.Value {
-        const top = self.top orelse return error.StackMismatch;
-        self.top = top.prev;
-        return top.@"type";
-    }
-
-    pub fn topCheck(self: StackCheck, typ: Module.Type.Value) !void {
-        if (self.top == null or self.top.?.@"type" != typ) {
-            return error.StackMismatch;
-        }
-    }
-
-    pub fn popTypesCheck(self: *StackCheck, checks: []const Module.Type.Value) !void {
-        var i: usize = checks.len;
-        while (i > 0) {
-            i -= 1;
-            if (checks[i] != try self.popType()) {
-                return error.StackMismatch;
-            }
-        }
-    }
-};
-
 pub fn post_process(self: *Module) !void {
     var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
     defer temp_arena.deinit();
@@ -70,85 +15,16 @@ pub fn post_process(self: *Module) !void {
         }
     }
 
-    var stack_check = StackCheck.init(&temp_arena.allocator);
+    var stack_checker = StackChecker.init(&temp_arena.allocator);
 
     var stack_blocks = std.ArrayList(usize).init(&temp_arena.allocator);
     var block_metas = std.AutoHashMap(usize, struct { op: Op.Code, block_type: Module.Type.Block, jump_target: usize }).init(&temp_arena.allocator);
     var jump_matches = std.ArrayList(struct { instr_idx: usize, block_instr: usize }).init(&temp_arena.allocator);
 
     for (self.code) |body, f| {
-        const func = self.function[f];
-        const func_type = self.@"type"[@enumToInt(func.type_idx)];
         const func_idx = f + import_funcs;
 
-        std.debug.assert(stack_check.top == null);
-        try stack_check.reset(body.code.len);
-
-        for (body.code) |instr, instr_idx| {
-            const op_meta = Op.Meta.of(instr.op);
-            switch (instr.op) {
-                .call => {
-                    const call_func = self.function[instr.arg.U32];
-                    const call_type = self.@"type"[@enumToInt(call_func.type_idx)];
-                    try stack_check.popTypesCheck(call_type.param_types);
-                    try stack_check.setPush(instr_idx, call_type.return_type);
-                },
-                .call_indirect => {
-                    const call_type = self.@"type"[instr.arg.U32];
-                    try stack_check.popTypesCheck(call_type.param_types);
-                    try stack_check.setPush(instr_idx, call_type.return_type);
-                },
-
-                .@"else" => @panic("TODO: handle if blockvalue else"),
-
-                .@"local.tee" => try stack_check.topCheck(localType(instr.arg.U32, func_type.param_types, body.locals)),
-                .@"local.set" => try stack_check.popTypesCheck(&.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
-                .@"local.get" => try stack_check.setPush(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
-
-                // Technically pops off 2 elements, makes sure they're the same, and pushes 1 back on
-                // But we can just pop 1 off and compare it to the remaining top
-                .select => try stack_check.topCheck(try stack_check.popType()),
-
-                // Drops *any* value, no check needed
-                .drop => _ = try stack_check.popType(),
-
-                else => {
-                    for (op_meta.pop) |pop| {
-                        const expected: Module.Type.Value = switch (pop) {
-                            .I32 => .I32,
-                            .I64 => .I64,
-                            .F32 => .F32,
-                            .F64 => .F64,
-                            .Poly => unreachable,
-                        };
-                        try stack_check.popTypesCheck(&.{expected});
-                    }
-
-                    if (op_meta.push) |push| {
-                        try stack_check.setPush(instr_idx, switch (push) {
-                            .I32 => .I32,
-                            .I64 => .I64,
-                            .F32 => .F32,
-                            .F64 => .F64,
-                            .Poly => unreachable,
-                        });
-                    }
-                },
-            }
-            // Didn't push anything on -- copy the existing top over
-            if (stack_check.list.items.len == instr_idx) {
-                try stack_check.setPush(instr_idx, null);
-            }
-        }
-
-        std.debug.assert(stack_check.list.items.len == body.code.len);
-        if (func_type.return_type) |return_type| {
-            try stack_check.popTypesCheck(&.{return_type});
-        }
-
-        if (stack_check.top != null) {
-            return error.StackMismatch;
-        }
+        try stack_checker.process(self, f);
 
         // Block checks
 
@@ -190,7 +66,7 @@ pub fn post_process(self: *Module) !void {
                     var block_meta = block_metas.get(block_instr).?;
 
                     if (block_meta.block_type != .Empty) {
-                        const top = stack_check.list.items[instr_idx].?;
+                        const top = stack_checker.list.items[instr_idx].?;
                         if (@enumToInt(block_meta.block_type) != @enumToInt(top.@"type")) {
                             return error.StackMismatch;
                         }
@@ -239,13 +115,137 @@ pub fn post_process(self: *Module) !void {
     }
 }
 
-fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) Module.Type.Value {
-    if (local_idx < params.len) {
-        return params[local_idx];
-    } else {
-        return locals[local_idx - params.len];
+const StackChecker = struct {
+    top: ?*Node,
+    list: std.ArrayList(?Node),
+
+    const Node = struct {
+        @"type": Module.Type.Value,
+        prev: ?*Node,
+    };
+
+    pub fn init(allocator: *std.mem.Allocator) StackChecker {
+        return .{
+            .top = null,
+            .list = std.ArrayList(?Node).init(allocator),
+        };
     }
-}
+
+    pub fn process(self: *StackChecker, module: *const Module, body_idx: usize) !void {
+        const func = module.function[body_idx];
+        const func_type = module.@"type"[@enumToInt(func.type_idx)];
+        const body = module.code[body_idx];
+
+        self.top = null;
+        self.list.shrinkRetainingCapacity(0);
+        try self.list.ensureCapacity(body.code.len);
+
+        for (body.code) |instr, instr_idx| {
+            const op_meta = Op.Meta.of(instr.op);
+            switch (instr.op) {
+                .call => {
+                    const call_func = module.function[instr.arg.U32];
+                    const call_type = module.@"type"[@enumToInt(call_func.type_idx)];
+                    try self.popTypesCheck(call_type.param_types);
+                    try self.setPush(instr_idx, call_type.return_type);
+                },
+                .call_indirect => {
+                    const call_type = module.@"type"[instr.arg.U32];
+                    try self.popTypesCheck(call_type.param_types);
+                    try self.setPush(instr_idx, call_type.return_type);
+                },
+
+                .@"else" => @panic("TODO: handle if blockvalue else"),
+
+                .@"local.tee" => try self.topCheck(localType(instr.arg.U32, func_type.param_types, body.locals)),
+                .@"local.set" => try self.popTypesCheck(&.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
+                .@"local.get" => try self.setPush(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
+
+                // Technically pops off 2 elements, makes sure they're the same, and pushes 1 back on
+                // But we can just pop 1 off and compare it to the remaining top
+                .select => {
+                    const prev_top = try self.popType();
+                    try self.topCheck(prev_top);
+                },
+
+                // Drops *any* value, no check needed
+                .drop => _ = try self.popType(),
+
+                else => {
+                    for (op_meta.pop) |pop| {
+                        try self.popTypesCheck(&.{asValue(pop)});
+                    }
+
+                    if (op_meta.push) |push| {
+                        try self.setPush(instr_idx, asValue(push));
+                    }
+                },
+            }
+            // Didn't push anything on -- copy the existing top over
+            if (self.list.items.len == instr_idx) {
+                try self.setPush(instr_idx, null);
+            }
+        }
+
+        if (func_type.return_type) |return_type| {
+            try self.popTypesCheck(&.{return_type});
+        }
+
+        if (self.top != null) {
+            return error.StackMismatch;
+        }
+    }
+
+    fn asValue(change: Op.Stack.Change) Module.Type.Value {
+        return switch (change) {
+            .I32 => .I32,
+            .I64 => .I64,
+            .F32 => .F32,
+            .F64 => .F64,
+            .Poly => unreachable,
+        };
+    }
+
+    fn setPush(self: *StackChecker, idx: usize, typ: ?Module.Type.Value) !void {
+        std.debug.assert(idx == self.list.items.len);
+        if (typ) |typ_| {
+            self.list.appendAssumeCapacity(Node{ .@"type" = typ_, .prev = self.top });
+            self.top = &self.list.items[idx].?;
+        } else {
+            self.list.appendAssumeCapacity(if (self.top) |top| top.* else null);
+        }
+    }
+
+    fn popType(self: *StackChecker) !Module.Type.Value {
+        const top = self.top orelse return error.StackMismatch;
+        self.top = top.prev;
+        return top.@"type";
+    }
+
+    fn topCheck(self: StackChecker, typ: Module.Type.Value) !void {
+        if (self.top == null or self.top.?.@"type" != typ) {
+            return error.StackMismatch;
+        }
+    }
+
+    fn popTypesCheck(self: *StackChecker, checks: []const Module.Type.Value) !void {
+        var i: usize = checks.len;
+        while (i > 0) {
+            i -= 1;
+            if (checks[i] != try self.popType()) {
+                return error.StackMismatch;
+            }
+        }
+    }
+
+    fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) Module.Type.Value {
+        if (local_idx < params.len) {
+            return params[local_idx];
+        } else {
+            return locals[local_idx - params.len];
+        }
+    }
+};
 
 test "smoke" {
     var fbs = std.io.fixedBufferStream(
