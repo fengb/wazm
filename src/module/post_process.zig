@@ -17,13 +17,11 @@ pub fn post_process(self: *Module) !void {
 
     var stack_validator = StackValidator.init(&temp_arena.allocator);
 
-    var jump_matches = std.ArrayList(struct { instr_idx: usize, target_idx: usize, has_value: bool }).init(&temp_arena.allocator);
-
     for (self.code) |body, f| {
         try stack_validator.process(self, f);
 
         // Fill in jump targets
-        const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = &stack_validator.types };
+        const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = stack_validator.types.list.items };
         for (body.code) |instr, instr_idx| {
             switch (instr.op) {
                 .br, .br_if => {
@@ -58,7 +56,7 @@ pub fn post_process(self: *Module) !void {
 const JumpTargeter = struct {
     module: *Module,
     func_idx: usize,
-    types: *StackLedger(Module.Type.Value),
+    types: []const ?StackLedger(Module.Type.Value).Node,
 
     fn add(self: JumpTargeter, block_type: Module.Type.Block, from_idx: usize, to_idx: usize) !void {
         try self.module.jumps.putNoClobber(
@@ -66,10 +64,24 @@ const JumpTargeter = struct {
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
             .{
                 .has_value = block_type != .Empty,
-                .stack_unroll = undefined,
-                .target = .{ .single = @intCast(u32, to_idx) },
+                .target = .{
+                    .single = .{
+                        .addr = @intCast(u32, to_idx),
+                        .stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[to_idx]),
+                    },
+                },
             },
         );
+    }
+
+    fn stackDepth(node: ?StackLedger(Module.Type.Value).Node) u32 {
+        var iter = &(node orelse return 0);
+        var result: u32 = 1;
+        while (iter.prev) |prev| {
+            result += 1;
+            iter = prev;
+        }
+        return result;
     }
 };
 
@@ -213,6 +225,8 @@ const StackValidator = struct {
                 // Drops *any* value, no check needed
                 .drop => _ = try self.types.pop(instr_idx),
 
+                .br_table => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
+
                 else => {
                     for (op_meta.pop) |pop| {
                         try self.types.checkPops(instr_idx, &.{asValue(pop)});
@@ -341,10 +355,10 @@ test "jump locations" {
     try module.post_process();
 
     const br_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 1), br_0.target.single);
+    std.testing.expectEqual(@as(usize, 1), br_0.target.single.addr);
 
     const br_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), br_1.target.single);
+    std.testing.expectEqual(@as(usize, 5), br_1.target.single.addr);
 }
 
 test "if/else locations" {
@@ -366,8 +380,10 @@ test "if/else locations" {
 
     const jump_if = module.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
     // Note that if's jump target is *after* the else instruction
-    std.testing.expectEqual(@as(usize, 4), jump_if.target.single);
+    std.testing.expectEqual(@as(usize, 4), jump_if.target.single.addr);
+    std.testing.expectEqual(@as(usize, 0), jump_if.target.single.stack_unroll);
 
     const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), jump_else.target.single);
+    std.testing.expectEqual(@as(usize, 5), jump_else.target.single.addr);
+    std.testing.expectEqual(@as(usize, 0), jump_else.target.single.stack_unroll);
 }

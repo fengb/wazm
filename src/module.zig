@@ -96,11 +96,15 @@ jumps: InstrJumps = .{},
 
 pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, struct {
     has_value: bool,
-    stack_unroll: u32,
     target: union {
-        single: u32,
-        table: [*]const u32, // len = args.len
+        single: Target,
+        table: [*]const Target, // len = args.len
     },
+
+    const Target = struct {
+        addr: u32,
+        stack_unroll: u32,
+    };
 });
 
 pub fn init(arena: std.heap.ArenaAllocator) Module {

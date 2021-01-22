@@ -170,12 +170,13 @@ pub fn jump(self: *Execution, table_idx: ?u32) void {
     else
         null;
 
-    self.dropN(meta.stack_unroll);
-
-    self.current_frame.instr = if (table_idx) |idx|
+    const target = if (table_idx) |idx|
         meta.target.table[idx]
     else
         meta.target.single;
+
+    self.dropN(target.stack_unroll);
+    self.current_frame.instr = target.addr;
 
     if (result) |value| {
         self.push(Op.Fixval, value) catch unreachable;
