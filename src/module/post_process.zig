@@ -17,19 +17,14 @@ pub fn post_process(self: *Module) !void {
 
     var stack_validator = StackValidator.init(&temp_arena.allocator);
 
-    var jump_matches = std.ArrayList(struct { instr_idx: usize, block_instr: usize }).init(&temp_arena.allocator);
+    var jump_matches = std.ArrayList(struct { instr_idx: usize, target_idx: usize, has_value: bool }).init(&temp_arena.allocator);
 
     for (self.code) |body, f| {
-        const func_idx = f + import_funcs;
-
         try stack_validator.process(self, f);
 
         // Fill in jump targets
-
-        jump_matches.shrinkRetainingCapacity(0);
-
+        const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = &stack_validator.types };
         for (body.code) |instr, instr_idx| {
-            const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
                 .br, .br_if => {
                     var block = &(stack_validator.blocks.list.items[instr_idx] orelse return error.JumpExceedsBlock);
@@ -40,30 +35,43 @@ pub fn post_process(self: *Module) !void {
                         block = block.prev orelse return error.JumpExceedsBlock;
                     }
 
-                    try jump_matches.append(.{ .instr_idx = instr_idx, .block_instr = block.start_idx });
+                    const block_instr = body.code[block.start_idx];
+                    const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
+                    try jump_targeter.add(block.data, instr_idx, target_idx);
                 },
                 .br_table => @panic("TODO"),
-                // "if" and "else" are their own jump
-                .@"if", .@"else" => try jump_matches.append(.{ .instr_idx = instr_idx, .block_instr = instr_idx }),
+                .@"else" => {
+                    const block = stack_validator.blocks.list.items[instr_idx].?;
+                    try jump_targeter.add(block.data, instr_idx, block.end_idx);
+                },
+                .@"if" => {
+                    const block = stack_validator.blocks.list.items[instr_idx].?;
+                    // "if" jumps to *after* the corresponding else
+                    try jump_targeter.add(block.data, instr_idx, block.end_idx + 1);
+                },
                 else => {},
             }
         }
-
-        for (jump_matches.items) |jump| {
-            const block_meta = stack_validator.blocks.list.items[jump.block_instr].?;
-            const block_op = body.code[jump.block_instr].op;
-            try self.jumps.putNoClobber(
-                &self.arena.allocator,
-                .{ .func = @intCast(u32, func_idx), .instr = @intCast(u32, jump.instr_idx) },
-                .{
-                    .has_value = block_meta.data != .Empty,
-                    .stack_unroll = undefined,
-                    .target = .{ .single = @intCast(u32, if (block_op == .loop) block_meta.start_idx else block_meta.end_idx) },
-                },
-            );
-        }
     }
 }
+
+const JumpTargeter = struct {
+    module: *Module,
+    func_idx: usize,
+    types: *StackLedger(Module.Type.Value),
+
+    fn add(self: JumpTargeter, block_type: Module.Type.Block, from_idx: usize, to_idx: usize) !void {
+        try self.module.jumps.putNoClobber(
+            &self.module.arena.allocator,
+            .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
+            .{
+                .has_value = block_type != .Empty,
+                .stack_unroll = undefined,
+                .target = .{ .single = @intCast(u32, to_idx) },
+            },
+        );
+    }
+};
 
 pub fn StackLedger(comptime T: type) type {
     return struct {
@@ -146,6 +154,9 @@ const StackValidator = struct {
             switch (instr.op) {
                 // Block operations
                 .block, .loop, .@"if" => {
+                    if (instr.op == .@"if") {
+                        try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32});
+                    }
                     const result_type = @intToEnum(Op.Arg.Type, instr.arg.V128);
                     self.blocks.pushAt(instr_idx, switch (result_type) {
                         .Void => .Empty,
@@ -316,21 +327,47 @@ test "jump locations" {
     var fbs = std.io.fixedBufferStream(
         \\(module
         \\  (func
-        \\    block
-        \\      loop
-        \\        br 0
-        \\        br 1
-        \\      end
-        \\    end))
+        \\    block     ;; 0
+        \\      loop    ;; 1
+        \\        br 0  ;; 2
+        \\        br 1  ;; 3
+        \\      end     ;; 4
+        \\    end       ;; 5
+        \\  ))
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
     try module.post_process();
 
-    const jump_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 1), jump_0.target.single);
+    const br_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
+    std.testing.expectEqual(@as(usize, 1), br_0.target.single);
 
-    const jump_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), jump_1.target.single);
+    const br_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
+    std.testing.expectEqual(@as(usize, 5), br_1.target.single);
+}
+
+test "if/else locations" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func
+        \\    i32.const 0  ;; 0
+        \\    if           ;; 1
+        \\      nop        ;; 2
+        \\    else         ;; 3
+        \\      nop        ;; 4
+        \\    end          ;; 5
+        \\  ))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    try module.post_process();
+
+    const jump_if = module.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
+    // Note that if's jump target is *after* the else instruction
+    std.testing.expectEqual(@as(usize, 4), jump_if.target.single);
+
+    const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
+    std.testing.expectEqual(@as(usize, 5), jump_else.target.single);
 }
