@@ -98,7 +98,7 @@ pub const Meta = struct {
 };
 
 /// Generic memory chunk capable of representing any wasm type.
-/// Useful for storing instruction args, stack variables, and globals.
+/// Useful for storing stack variables, locals, and globals.
 pub const Fixval = extern union {
     I32: i32,
     U32: u32,
@@ -107,13 +107,6 @@ pub const Fixval = extern union {
     F32: f32,
     F64: f64,
     V128: i128, // TODO: make this a real vector
-
-    pub fn init(value: anytype) Fixval {
-        const T = @TypeOf(value);
-        if (@bitSizeOf(T) != 128) @compileError("Cannot convert to arg -- not 128 bits: " ++ @typeName(T));
-
-        return @bitCast(Fixval, value);
-    }
 
     pub const Void = extern struct {
         _pad: u128,
@@ -158,7 +151,18 @@ test "Fixval subtype sizes" {
     }
 }
 
-pub const Arg = struct {
+pub const Arg = extern union {
+    I32: i32,
+    U32: u32,
+    I64: i64,
+    U64: u64,
+    F32: f32,
+    F64: f64,
+    Type: Type,
+    U32z: U32z,
+    Mem: Mem,
+    Array: Array,
+
     pub const Kind = enum {
         Void,
         I32,
@@ -190,7 +194,7 @@ pub const Arg = struct {
         }
     };
 
-    pub const Type = enum(i128) {
+    pub const Type = enum(u128) {
         Void = 0x40,
         I32 = 0x7F,
         I64 = 0x7E,
@@ -313,7 +317,7 @@ pub const WasmTrap = error{
 
 const hex = "0123456789ABCDEF";
 
-pub fn step(op: Code, ctx: *Execution, arg: Fixval, pop: [*]Fixval) WasmTrap!?Fixval {
+pub fn step(op: Code, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixval {
     const code = @enumToInt(op);
     var prefix_search = [4]u8{ '0', 'x', hex[code / 16], hex[code % 16] };
 
@@ -325,12 +329,11 @@ pub fn step(op: Code, ctx: *Execution, arg: Fixval, pop: [*]Fixval) WasmTrap!?Fi
             const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
             const result = @field(Impl, decl.name)(
                 ctx,
-                switch (@typeInfo(args[1].arg_type.?)) {
-                    .Enum => @intToEnum(args[1].arg_type.?, arg.U64),
+                switch (args[1].arg_type.?) {
+                    Arg.Type => arg.Type,
                     else => @bitCast(args[1].arg_type.?, arg),
                 },
                 @ptrCast(args[2].arg_type.?, pop),
-                //@bitCast(args[2].arg_type.?, pop),
             );
 
             const result_value = if (@typeInfo(@TypeOf(result)) == .ErrorUnion) try result else result;

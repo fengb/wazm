@@ -192,7 +192,7 @@ pub const ResizableLimits = struct {
 pub const Instr = struct {
     op: Op.Code,
     pop_len: u8,
-    arg: Op.Fixval,
+    arg: Op.Arg,
 };
 
 const InitExpr = struct {};
@@ -483,7 +483,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 .op = @intToEnum(Op.Code, opcode),
                                 .pop_len = @intCast(u8, op_meta.pop.len),
                                 .arg = switch (op_meta.arg_kind) {
-                                    .Void => .{ .I64 = 0 },
+                                    .Void => undefined,
                                     .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
                                     .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
                                     .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
@@ -491,14 +491,18 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                     .F32 => .{ .F64 = @bitCast(f32, try payload.reader().readIntLittle(i32)) },
                                     .F64 => .{ .F64 = @bitCast(f64, try payload.reader().readIntLittle(i64)) },
                                     .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
-                                    .U32z => Op.Fixval.init(Op.Arg.U32z{
-                                        .data = try readVarint(u32, payload.reader()),
-                                        .reserved = try payload.reader().readByte(),
-                                    }),
-                                    .Mem => Op.Fixval.init(Op.Arg.Mem{
-                                        .offset = try readVarint(u32, payload.reader()),
-                                        .align_ = try readVarint(u32, payload.reader()),
-                                    }),
+                                    .U32z => .{
+                                        .U32z = .{
+                                            .data = try readVarint(u32, payload.reader()),
+                                            .reserved = try payload.reader().readByte(),
+                                        },
+                                    },
+                                    .Mem => .{
+                                        .Mem = .{
+                                            .offset = try readVarint(u32, payload.reader()),
+                                            .align_ = try readVarint(u32, payload.reader()),
+                                        },
+                                    },
                                     .Array => blk: {
                                         const target_count = try readVarint(u32, payload.reader());
                                         const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
@@ -507,12 +511,12 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                         for (data) |*item| {
                                             item.* = try readVarint(u32, payload.reader());
                                         }
-                                        break :blk Op.Fixval.init(
-                                            Op.Arg.Array{
+                                        break :blk .{
+                                            .Array = .{
                                                 .data = data.ptr,
                                                 .len = data.len,
                                             },
-                                        );
+                                        };
                                     },
                                 },
                             });

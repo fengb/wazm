@@ -169,7 +169,7 @@ const StackValidator = struct {
                     if (instr.op == .@"if") {
                         try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32});
                     }
-                    const result_type = @intToEnum(Op.Arg.Type, instr.arg.V128);
+                    const result_type = instr.arg.Type;
                     self.blocks.pushAt(instr_idx, switch (result_type) {
                         .Void => .Empty,
                         .I32 => .I32,

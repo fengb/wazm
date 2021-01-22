@@ -484,10 +484,10 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                         .op = op,
                         .pop_len = @intCast(u8, op_meta.pop.len),
                         .arg = switch (op_meta.arg_kind) {
-                            .Void => .{ .I64 = 0 },
+                            .Void => undefined,
                             .Type => blk: {
                                 const pair = command.obtainList() catch |err| switch (err) {
-                                    error.ExpectedListGotAtom => break :blk Op.Fixval.init(Op.Arg.Type.Void),
+                                    error.ExpectedListGotAtom => break :blk Op.Arg{ .Type = .Void },
                                     else => |e| return e,
                                 };
                                 var buf: [0x10]u8 = undefined;
@@ -506,31 +506,20 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 };
 
                                 try pair.expectEnd();
-                                break :blk Op.Fixval.init(typ);
+                                break :blk Op.Arg{ .Type = typ };
                             },
                             .U32z, .Mem, .Array => @panic("TODO"),
                             else => blk: {
                                 var arg_buf: [0x10]u8 = undefined;
                                 const arg = try command.obtainAtom(&arg_buf);
-                                break :blk @as(Op.Fixval, switch (op_meta.arg_kind) {
-                                    .Void => unreachable,
-                                    .Type => Op.Fixval.init(
-                                        @as(Op.Arg.Type, switch (swhash.match(arg)) {
-                                            swhash.case("void") => .Void,
-                                            swhash.case("i32") => .I32,
-                                            swhash.case("i64") => .I64,
-                                            swhash.case("f32") => .F32,
-                                            swhash.case("f64") => .F64,
-                                            else => return error.ExpectedType,
-                                        }),
-                                    ),
+                                break :blk @as(Op.Arg, switch (op_meta.arg_kind) {
+                                    .Void, .Type, .U32z, .Mem, .Array => unreachable,
                                     .I32 => .{ .I32 = try std.fmt.parseInt(i32, arg, 10) },
                                     .U32 => .{ .U32 = try std.fmt.parseInt(u32, arg, 10) },
                                     .I64 => .{ .I64 = try std.fmt.parseInt(i64, arg, 10) },
                                     .U64 => .{ .U64 = try std.fmt.parseInt(u64, arg, 10) },
                                     .F32 => .{ .F32 = try std.fmt.parseFloat(f32, arg) },
                                     .F64 => .{ .F64 = try std.fmt.parseFloat(f64, arg) },
-                                    .U32z, .Mem, .Array => @panic(arg),
                                 });
                             },
                         },
@@ -711,10 +700,10 @@ test "parse blocks" {
     std.testing.expectEqual(@as(usize, 6), code.len);
 
     std.testing.expectEqual(Op.Code.block, code[0].op);
-    std.testing.expectEqual(@enumToInt(Op.Arg.Type.I32), code[0].arg.V128);
+    std.testing.expectEqual(Op.Arg.Type.I32, code[0].arg.Type);
 
     std.testing.expectEqual(Op.Code.loop, code[1].op);
-    std.testing.expectEqual(@enumToInt(Op.Arg.Type.Void), code[1].arg.V128);
+    std.testing.expectEqual(Op.Arg.Type.Void, code[1].arg.Type);
 
     std.testing.expectEqual(Op.Code.br, code[2].op);
     std.testing.expectEqual(@as(u32, 0), code[2].arg.U32);
