@@ -601,7 +601,7 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 1), module.code[0].code.len);
     std.testing.expectEqual(Op.Code.@"i32.const", module.code[0].code[0].op);
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     const result = try instance.call("a", &[0]Instance.Value{});

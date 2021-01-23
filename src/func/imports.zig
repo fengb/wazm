@@ -14,9 +14,9 @@ test "import" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {
+    var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
-            pub fn thing(ctx: *Execution, arg: i32) i32 {
+            pub fn thing(exec: *Execution, arg: i32) i32 {
                 return arg + 1;
             }
         };
@@ -45,13 +45,13 @@ test "import multiple" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {
+    var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
-            pub fn add(ctx: *Execution, arg0: i32, arg1: i32) i32 {
+            pub fn add(exec: *Execution, arg0: i32, arg1: i32) i32 {
                 return arg0 + arg1;
             }
 
-            pub fn mul(ctx: *Execution, arg0: i32, arg1: i32) i32 {
+            pub fn mul(exec: *Execution, arg0: i32, arg1: i32) i32 {
                 return arg0 * arg1;
             }
         };

@@ -30,7 +30,7 @@ test "i32 math" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     {
@@ -78,7 +78,7 @@ test "i64 math" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     {
@@ -126,7 +126,7 @@ test "f32 math" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     {
@@ -174,7 +174,7 @@ test "f64 math" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     {
@@ -212,7 +212,7 @@ test "call with args" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     std.testing.expectError(error.TypeSignatureMismatch, instance.call("add", &[0]Instance.Value{}));
@@ -246,7 +246,7 @@ test "call call call" {
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    var instance = try module.instantiate(std.testing.allocator, struct {});
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();
 
     {

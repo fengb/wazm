@@ -6,6 +6,7 @@ const util = @import("util.zig");
 
 const Execution = @This();
 
+context: ?*c_void,
 memory: []u8,
 funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
@@ -17,6 +18,7 @@ current_frame: Frame = Frame.terminus(),
 
 pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var ctx = Execution{
+        .context = instance.context,
         .memory = instance.memory,
         .funcs = instance.funcs,
         .allocator = instance.allocator,
