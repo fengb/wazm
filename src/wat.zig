@@ -48,7 +48,7 @@ fn Sexpr(comptime Reader: type) type {
                 };
             }
 
-            pub fn obtainAtom(self: List, buffer: []u8) ![]const u8 {
+            pub fn obtainAtom(self: List, buffer: []u8) ![]u8 {
                 return (try self.nextAtom(buffer)) orelse error.ExpectedAtomGotNull;
             }
 
@@ -56,7 +56,7 @@ fn Sexpr(comptime Reader: type) type {
                 return (try self.nextList()) orelse error.ExpectedListGotNull;
             }
 
-            pub fn nextAtom(self: List, buffer: []u8) !?[]const u8 {
+            pub fn nextAtom(self: List, buffer: []u8) !?[]u8 {
                 if (self.isAtEnd()) return null;
 
                 return switch (try self.ctx.scan()) {
@@ -105,7 +105,7 @@ fn Sexpr(comptime Reader: type) type {
                 }
             }
 
-            fn loadIntoBuffer(self: List, buffer: []u8) ![]const u8 {
+            fn loadIntoBuffer(self: List, buffer: []u8) ![]u8 {
                 var fbs = std.io.fixedBufferStream(buffer);
                 const writer = fbs.writer();
 
@@ -323,18 +323,18 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
-    var customs = std.ArrayList(Module.sectionType(.Custom)).init(&arena.allocator);
-    var types = std.ArrayList(Module.sectionType(.Type)).init(&arena.allocator);
-    var imports = std.ArrayList(Module.sectionType(.Import)).init(&arena.allocator);
-    var functions = std.ArrayList(Module.sectionType(.Function)).init(&arena.allocator);
-    var tables = std.ArrayList(Module.sectionType(.Table)).init(&arena.allocator);
-    var memories = std.ArrayList(Module.sectionType(.Memory)).init(&arena.allocator);
-    var globals = std.ArrayList(Module.sectionType(.Global)).init(&arena.allocator);
-    var exports = std.ArrayList(Module.sectionType(.Export)).init(&arena.allocator);
-    var start: ?Module.sectionType(.Start) = null;
-    var elements = std.ArrayList(Module.sectionType(.Element)).init(&arena.allocator);
-    var codes = std.ArrayList(Module.sectionType(.Code)).init(&arena.allocator);
-    var data = std.ArrayList(Module.sectionType(.Data)).init(&arena.allocator);
+    var customs = std.ArrayList(Module.Section(.custom)).init(&arena.allocator);
+    var types = std.ArrayList(Module.Section(.type)).init(&arena.allocator);
+    var imports = std.ArrayList(Module.Section(.import)).init(&arena.allocator);
+    var functions = std.ArrayList(Module.Section(.function)).init(&arena.allocator);
+    var tables = std.ArrayList(Module.Section(.table)).init(&arena.allocator);
+    var memories = std.ArrayList(Module.Section(.memory)).init(&arena.allocator);
+    var globals = std.ArrayList(Module.Section(.global)).init(&arena.allocator);
+    var exports = std.ArrayList(Module.Section(.@"export")).init(&arena.allocator);
+    var start: ?Module.Section(.start) = null;
+    var elements = std.ArrayList(Module.Section(.element)).init(&arena.allocator);
+    var codes = std.ArrayList(Module.Section(.code)).init(&arena.allocator);
+    var data = std.ArrayList(Module.Section(.data)).init(&arena.allocator);
 
     while (try root.nextList()) |command| {
         const swhash = util.Swhash(8);
@@ -408,7 +408,7 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     return error.ExpectString;
                 }
 
-                var result = Module.sectionType(.Import){
+                var result = Module.Section(.import){
                     .module = try arena.allocator.dupe(u8, module[1 .. module.len - 1]),
                     .field = try arena.allocator.dupe(u8, field[1 .. field.len - 1]),
                     .kind = undefined,
@@ -475,9 +475,14 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 }
 
                 var code = std.ArrayList(Module.Instr).init(&arena.allocator);
-                var val_buf: [0x100]u8 = undefined;
-                while (try command.nextAtom(&val_buf)) |val| {
-                    const op = std.meta.stringToEnum(Op.Code, val) orelse return error.OpNotFound;
+                var op_buf: [0x100]u8 = undefined;
+                while (try command.nextAtom(&op_buf)) |op_string| {
+                    for (op_string) |*letter| {
+                        if (letter.* == '.') {
+                            letter.* = '_';
+                        }
+                    }
+                    const op = std.meta.stringToEnum(std.wasm.Opcode, op_string) orelse return error.OpNotFound;
                     const op_meta = Op.Meta.of(op);
 
                     try code.append(.{
@@ -699,19 +704,19 @@ test "parse blocks" {
     const code = module.code[0].code;
     std.testing.expectEqual(@as(usize, 6), code.len);
 
-    std.testing.expectEqual(Op.Code.block, code[0].op);
+    std.testing.expectEqual(std.wasm.Opcode.block, code[0].op);
     std.testing.expectEqual(Op.Arg.Type.I32, code[0].arg.Type);
 
-    std.testing.expectEqual(Op.Code.loop, code[1].op);
+    std.testing.expectEqual(std.wasm.Opcode.loop, code[1].op);
     std.testing.expectEqual(Op.Arg.Type.Void, code[1].arg.Type);
 
-    std.testing.expectEqual(Op.Code.br, code[2].op);
+    std.testing.expectEqual(std.wasm.Opcode.br, code[2].op);
     std.testing.expectEqual(@as(u32, 0), code[2].arg.U32);
 
-    std.testing.expectEqual(Op.Code.br, code[3].op);
+    std.testing.expectEqual(std.wasm.Opcode.br, code[3].op);
     std.testing.expectEqual(@as(u32, 1), code[3].arg.U32);
 
-    std.testing.expectEqual(Op.Code.end, code[4].op);
+    std.testing.expectEqual(std.wasm.Opcode.end, code[4].op);
 
-    std.testing.expectEqual(Op.Code.end, code[5].op);
+    std.testing.expectEqual(std.wasm.Opcode.end, code[5].op);
 }

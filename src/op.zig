@@ -1,28 +1,8 @@
 const std = @import("std");
 const Execution = @import("execution.zig");
 
-pub const Code = @Type(.{
-    .Enum = .{
-        .decls = &[_]std.builtin.TypeInfo.Declaration{},
-        .tag_type = u8,
-        .is_exhaustive = false,
-        .layout = .Extern,
-        .fields = blk: {
-            var fields: []const std.builtin.TypeInfo.EnumField = &[0]std.builtin.TypeInfo.EnumField{};
-            for (Meta.sparse) |op| {
-                fields = fields ++ &[1]std.builtin.TypeInfo.EnumField{.{
-                    .name = op.name,
-                    .value = op.raw_code,
-                }};
-            }
-
-            break :blk fields;
-        },
-    },
-});
-
 pub const Meta = struct {
-    raw_code: u8,
+    code: std.wasm.Opcode,
     name: []const u8,
     arg_kind: Arg.Kind,
     push: ?Stack.Change,
@@ -54,7 +34,7 @@ pub const Meta = struct {
             };
 
             result[i] = .{
-                .raw_code = parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
+                .code = parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
                 .name = decl.name[5..],
                 .arg_kind = Arg.Kind.init(arg_type),
                 .push = Stack.Change.initPush(push_type),
@@ -78,8 +58,7 @@ pub const Meta = struct {
         break :sparse result;
     };
 
-    // TODO: move to Op.Code.meta() when/if we get decls
-    pub fn of(code: Code) Meta {
+    pub fn of(code: std.wasm.Opcode) Meta {
         return all[@enumToInt(code)].?;
     }
 
@@ -87,11 +66,12 @@ pub const Meta = struct {
         var result = [_]?Meta{null} ** 256;
 
         for (sparse) |meta| {
-            if (result[meta.raw_code] != null) {
+            const raw_code = @enumToInt(meta.code);
+            if (result[raw_code] != null) {
                 var buf: [100]u8 = undefined;
-                @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ meta.raw_code, meta.name }));
+                @compileError(try std.fmt.bufPrint(&buf, "Collision: '0x{X} {}'", .{ code, meta.name }));
             }
-            result[meta.raw_code] = meta;
+            result[raw_code] = meta;
         }
         break :blk result;
     };
@@ -288,7 +268,7 @@ test "ops" {
     std.testing.expectEqual(nop.push, null);
     std.testing.expectEqual(nop.pop.len, 0);
 
-    const i32_load = Meta.of(.@"i32.load");
+    const i32_load = Meta.of(.i32_load);
     std.testing.expectEqual(i32_load.arg_kind, .Mem);
     std.testing.expectEqual(i32_load.push, .I32);
 
@@ -317,9 +297,9 @@ pub const WasmTrap = error{
 
 const hex = "0123456789ABCDEF";
 
-pub fn step(op: Code, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixval {
-    const code = @enumToInt(op);
-    var prefix_search = [4]u8{ '0', 'x', hex[code / 16], hex[code % 16] };
+pub fn step(op: std.wasm.Opcode, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixval {
+    const raw_code = @enumToInt(op);
+    var prefix_search = [4]u8{ '0', 'x', hex[raw_code / 16], hex[raw_code % 16] };
 
     // TODO: test out function pointers for performance comparison
     // LLVM optimizes this inline for / mem.eql as a jump table
@@ -355,12 +335,12 @@ pub fn step(op: Code, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixva
     unreachable; // Op parse error
 }
 
-fn parseOpcode(name: []const u8) !u8 {
+fn parseOpcode(name: []const u8) !std.wasm.Opcode {
     if (name[0] != '0' or name[1] != 'x' or name[4] != ' ') {
         return error.InvalidCharacter;
     }
 
-    return std.fmt.parseInt(u8, name[2..4], 16);
+    return @intToEnum(std.wasm.Opcode, try std.fmt.parseInt(u8, name[2..4], 16));
 }
 
 const Impl = struct {

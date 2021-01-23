@@ -114,33 +114,18 @@ pub fn deinit(self: *Module) void {
     self.* = undefined;
 }
 
-pub fn sectionType(comptime section: Section) type {
+pub fn Section(comptime section: std.wasm.Section) type {
     const fields = std.meta.fields(Module);
     const num = @enumToInt(section) + 1; // 0 == allocator, 1 == custom, etc.
     return std.meta.Child(fields[num].field_type);
 }
 
-test "sectionType" {
+test "Section" {
     const module: Module = undefined;
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.custom)), sectionType(.Custom));
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.memory)), sectionType(.Memory));
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.data)), sectionType(.Data));
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.custom)), Section(.custom));
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.memory)), Section(.memory));
+    std.testing.expectEqual(std.meta.Child(@TypeOf(module.data)), Section(.data));
 }
-
-const Section = enum {
-    Custom = 0,
-    Type = 1,
-    Import = 2,
-    Function = 3,
-    Table = 4,
-    Memory = 5,
-    Global = 6,
-    Export = 7,
-    Start = 8,
-    Element = 9,
-    Code = 10,
-    Data = 11,
-};
 
 pub const Index = struct {
     pub const FuncType = enum(u32) { _ };
@@ -188,7 +173,7 @@ pub const ResizableLimits = struct {
 };
 
 pub const Instr = struct {
-    op: Op.Code,
+    op: std.wasm.Opcode,
     pop_len: u8,
     arg: Op.Arg,
 };
@@ -336,8 +321,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
         const payload_len = try readVarint(u32, reader);
         var payload = clampedReader(reader, payload_len);
 
-        switch (try std.meta.intToEnum(Section, id)) {
-            .Type => {
+        switch (try std.meta.intToEnum(std.wasm.Section, id)) {
+            .type => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.@"type", count)) |*t| {
                     t.form = try readVarintEnum(Type.Form, payload.reader());
@@ -351,7 +336,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.reader());
                 }
             },
-            .Import => {
+            .import => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.import, count)) |*i| {
                     const module_len = try readVarint(u32, payload.reader());
@@ -374,14 +359,14 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     };
                 }
             },
-            .Function => {
+            .function => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.function, count)) |*f| {
                     const index = try readVarint(u32, payload.reader());
                     f.type_idx = @intToEnum(Index.FuncType, index);
                 }
             },
-            .Table => {
+            .table => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.table, count)) |*t| {
                     t.element_type = try readVarintEnum(Type.Elem, payload.reader());
@@ -391,7 +376,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
             },
-            .Memory => {
+            .memory => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.memory, count)) |*m| {
                     const flags = try readVarint(u1, payload.reader());
@@ -399,7 +384,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
             },
-            .Global => {
+            .global => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.global, count)) |*g| {
                     g.@"type".content_type = try readVarintEnum(Type.Value, payload.reader());
@@ -407,7 +392,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     g.init = .{}; // FIXME
                 }
             },
-            .Export => {
+            .@"export" => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.@"export", count)) |*e| {
                     const field_len = try readVarint(u32, payload.reader());
@@ -418,13 +403,13 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     e.index = try readVarint(u32, payload.reader());
                 }
             },
-            .Start => {
+            .start => {
                 const index = try readVarint(u32, payload.reader());
                 result.start = .{
                     .index = @intToEnum(Index.Function, index),
                 };
             },
-            .Element => {
+            .element => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.element, count)) |*e| {
                     const index = try readVarint(u32, payload.reader());
@@ -438,7 +423,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     }
                 }
             },
-            .Code => {
+            .code => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, payload.reader());
@@ -478,7 +463,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                             const op_meta = Op.Meta.all[opcode] orelse return error.InvalidOpCode;
 
                             try list.append(.{
-                                .op = @intToEnum(Op.Code, opcode),
+                                .op = @intToEnum(std.wasm.Opcode, opcode),
                                 .pop_len = @intCast(u8, op_meta.pop.len),
                                 .arg = switch (op_meta.arg_kind) {
                                     .Void => undefined,
@@ -522,7 +507,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     };
                 }
             },
-            .Data => {
+            .data => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.data, count)) |*d| {
                     const index = try readVarint(u32, payload.reader());
@@ -535,7 +520,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     d.data = data;
                 }
             },
-            .Custom => @panic("TODO"),
+            .custom => @panic("TODO"),
         }
         try expectEos(payload.reader());
     }
@@ -599,7 +584,7 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 1), module.function.len);
     std.testing.expectEqual(@as(usize, 1), module.code.len);
     std.testing.expectEqual(@as(usize, 1), module.code[0].code.len);
-    std.testing.expectEqual(Op.Code.@"i32.const", module.code[0].code[0].op);
+    std.testing.expectEqual(std.wasm.Opcode.i32_const, module.code[0].code[0].op);
 
     var instance = try module.instantiate(std.testing.allocator, null, struct {});
     defer instance.deinit();

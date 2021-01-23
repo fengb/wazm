@@ -228,9 +228,9 @@ const StackValidator = struct {
                     }
                 },
 
-                .@"local.set" => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
-                .@"local.get" => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
-                .@"local.tee" => {
+                .local_set => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
+                .local_get => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
+                .local_tee => {
                     const typ = localType(instr.arg.U32, func_type.param_types, body.locals);
                     try self.types.checkPops(instr_idx, &.{typ});
                     self.types.pushAt(instr_idx, typ);
