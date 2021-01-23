@@ -25,19 +25,23 @@ pub fn post_process(self: *Module) !void {
         for (body.code) |instr, instr_idx| {
             switch (instr.op) {
                 .br, .br_if => {
-                    var block = &(stack_validator.blocks.list.items[instr_idx] orelse return error.JumpExceedsBlock);
-
-                    var b = instr.arg.U32;
-                    while (b > 0) {
-                        b -= 1;
-                        block = block.prev orelse return error.JumpExceedsBlock;
-                    }
-
+                    const block = stack_validator.blocks.upFrom(instr_idx, instr.arg.U32) orelse return error.JumpExceedsBlock;
                     const block_instr = body.code[block.start_idx];
                     const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
                     try jump_targeter.add(block.data, instr_idx, target_idx);
                 },
-                .br_table => @panic("TODO"),
+                .br_table => {
+                    const targets = try self.arena.allocator.alloc(Module.JumpTarget, instr.arg.Array.len);
+                    for (targets) |*target, t| {
+                        const block_level = instr.arg.Array.ptr[t];
+                        const block = stack_validator.blocks.upFrom(instr_idx, block_level) orelse return error.JumpExceedsBlock;
+                        const block_instr = body.code[block.start_idx];
+                        const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
+                        target.addr = @intCast(u32, if (block_instr.op == .loop) block.start_idx else block.end_idx);
+                        target.has_value = block.data != .Empty;
+                    }
+                    try jump_targeter.addMany(instr_idx, targets);
+                },
                 .@"else" => {
                     const block = stack_validator.blocks.list.items[instr_idx].?;
                     try jump_targeter.add(block.data, instr_idx, block.end_idx);
@@ -58,19 +62,28 @@ const JumpTargeter = struct {
     func_idx: usize,
     types: []const ?StackLedger(Module.Type.Value).Node,
 
-    fn add(self: JumpTargeter, block_type: Module.Type.Block, from_idx: usize, to_idx: usize) !void {
+    fn add(self: JumpTargeter, block_type: Module.Type.Block, from_idx: usize, target_idx: usize) !void {
         try self.module.jumps.putNoClobber(
             &self.module.arena.allocator,
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
             .{
-                .has_value = block_type != .Empty,
-                .target = .{
-                    .single = .{
-                        .addr = @intCast(u32, to_idx),
-                        .stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[to_idx]),
-                    },
+                .one = .{
+                    .has_value = block_type != .Empty,
+                    .addr = @intCast(u32, target_idx),
+                    .stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[target_idx]),
                 },
             },
+        );
+    }
+
+    fn addMany(self: JumpTargeter, from_idx: usize, targets: []Module.JumpTarget) !void {
+        for (targets) |*target| {
+            target.stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[target.addr]);
+        }
+        try self.module.jumps.putNoClobber(
+            &self.module.arena.allocator,
+            .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
+            .{ .many = targets.ptr },
         );
     }
 
@@ -109,6 +122,16 @@ pub fn StackLedger(comptime T: type) type {
             self.top = null;
             self.list.shrinkRetainingCapacity(0);
             try self.list.ensureCapacity(size);
+        }
+
+        pub fn upFrom(self: Self, start_idx: usize, levels: usize) ?*const Node {
+            var node = &(self.list.items[start_idx] orelse return null);
+            var l = levels;
+            while (l > 0) {
+                l -= 1;
+                node = node.prev orelse return null;
+            }
+            return node;
         }
 
         pub fn pushAt(self: *Self, idx: usize, data: T) void {
@@ -355,10 +378,10 @@ test "jump locations" {
     try module.post_process();
 
     const br_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 1), br_0.target.single.addr);
+    std.testing.expectEqual(@as(usize, 1), br_0.one.addr);
 
     const br_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), br_1.target.single.addr);
+    std.testing.expectEqual(@as(usize, 5), br_1.one.addr);
 }
 
 test "if/else locations" {
@@ -380,10 +403,10 @@ test "if/else locations" {
 
     const jump_if = module.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
     // Note that if's jump target is *after* the else instruction
-    std.testing.expectEqual(@as(usize, 4), jump_if.target.single.addr);
-    std.testing.expectEqual(@as(usize, 0), jump_if.target.single.stack_unroll);
+    std.testing.expectEqual(@as(usize, 4), jump_if.one.addr);
+    std.testing.expectEqual(@as(usize, 0), jump_if.one.stack_unroll);
 
     const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), jump_else.target.single.addr);
-    std.testing.expectEqual(@as(usize, 0), jump_else.target.single.stack_unroll);
+    std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
+    std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
 }

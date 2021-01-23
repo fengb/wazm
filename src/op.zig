@@ -219,7 +219,7 @@ pub const Arg = extern union {
 
     // TODO: make this extern
     pub const Array = packed struct {
-        data: [*]u32,
+        ptr: [*]u32,
         len: usize,
         _pad: std.meta.Int(.unsigned, 128 - 2 * @bitSizeOf(usize)) = 0,
     };
@@ -430,7 +430,7 @@ const Impl = struct {
     }
     pub fn @"0x0E br_table"(ctx: *Execution, arg: Arg.Array, pop: *U32) void {
         const idx = std.math.min(pop.data, arg.len - 1); // default to last item. Pretty handy!
-        ctx.jump(arg.data[idx]);
+        ctx.jump(arg.ptr[idx]);
     }
     pub fn @"0x0F return"(ctx: *Execution, arg: Void, pop: *Void) void {
         // Forces unwindCall()

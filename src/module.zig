@@ -94,18 +94,16 @@ data: []const struct {
 
 jumps: InstrJumps = .{},
 
-pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, struct {
-    has_value: bool,
-    target: union {
-        single: Target,
-        table: [*]const Target, // len = args.len
-    },
-
-    const Target = struct {
-        addr: u32,
-        stack_unroll: u32,
-    };
+pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, union {
+    one: JumpTarget,
+    many: [*]const JumpTarget, // len = args.len
 });
+
+pub const JumpTarget = struct {
+    has_value: bool,
+    addr: u32,
+    stack_unroll: u32,
+};
 
 pub fn init(arena: std.heap.ArenaAllocator) Module {
     return Module{ .arena = arena };
@@ -513,7 +511,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                         }
                                         break :blk .{
                                             .Array = .{
-                                                .data = data.ptr,
+                                                .ptr = data.ptr,
                                                 .len = data.len,
                                             },
                                         };

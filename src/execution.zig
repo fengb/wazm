@@ -165,15 +165,15 @@ pub fn jump(self: *Execution, table_idx: ?u32) void {
         .instr = self.current_frame.instr - 1,
     }).?;
 
-    const result = if (meta.has_value)
+    const target = if (table_idx) |idx|
+        meta.many[idx]
+    else
+        meta.one;
+
+    const result = if (target.has_value)
         self.peek(Op.Fixval)
     else
         null;
-
-    const target = if (table_idx) |idx|
-        meta.target.table[idx]
-    else
-        meta.target.single;
 
     self.dropN(target.stack_unroll);
     self.current_frame.instr = target.addr;
