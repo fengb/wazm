@@ -7,16 +7,16 @@ const Wasi = @This();
 
 argv: [][]u8,
 
-fn run(self: Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
-    const module = try Module.parse(allocator, reader);
+pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
+    var module = try Module.parse(allocator, reader);
     defer module.deinit();
 
-    const instance = try module.instantiate(allocator, &self, struct {
+    var instance = try module.instantiate(allocator, self, struct {
         pub const wasi = imports;
     });
-    defer intance.deinit();
+    defer instance.deinit();
 
-    try instance.call("_start", .{});
+    _ = try instance.call("_start", .{});
 }
 
 /// Timestamp in nanoseconds.

@@ -6,7 +6,7 @@ const Execution = @import("execution.zig");
 
 const Instance = @This();
 
-module: *Module,
+module: *const Module,
 allocator: *std.mem.Allocator,
 context: ?*c_void,
 memory: []u8,
@@ -16,7 +16,7 @@ funcs: []const Func,
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
 
-pub fn init(module: *Module, allocator: *std.mem.Allocator, context: ?*c_void, comptime Imports: type) !Instance {
+pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_void, comptime Imports: type) !Instance {
     var exports = std.StringHashMap(Export).init(allocator);
     errdefer exports.deinit();
     for (module.@"export") |exp| {
