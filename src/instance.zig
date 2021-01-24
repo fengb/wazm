@@ -165,13 +165,32 @@ pub fn ImportManager(comptime Imports: type) type {
     const helpers = struct {
         fn Unwrapped(comptime T: type) type {
             return switch (@typeInfo(T)) {
+                .ErrorUnion => |eu_info| Unwrapped(eu_info.payload),
                 .Enum => |e_info| if (e_info.is_exhaustive) @compileError("Enum must be exhaustive") else e_info.tag_type,
+                .Struct => |s_info| {
+                    if (!@hasDecl(T, "Pointee") or
+                        s_info.fields.len != 1 or
+                        s_info.fields[0].field_type != u32)
+                    {
+                        @compileError("Struct can only be a P(ointer)");
+                    }
+                    return s_info.fields[0].field_type;
+                },
                 else => T,
             };
         }
 
         fn shim(comptime func: anytype) ImportFunc {
             return struct {
+                fn unwrap(raw: anytype) !Unwrapped(@TypeOf(raw)) {
+                    return switch (@typeInfo(@TypeOf(raw))) {
+                        .ErrorUnion => unwrap(try raw),
+                        .Enum => @enumToInt(raw),
+                        .Struct => raw.value,
+                        else => raw,
+                    };
+                }
+
                 pub fn shimmed(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
                     var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
                     args[0] = ctx;
@@ -187,10 +206,11 @@ pub fn ImportManager(comptime Imports: type) type {
                             f64 => params[i - 1].F64,
                             else => @compileError("Signature not supported"),
                         };
-                        args[i] = if (@typeInfo(f.field_type) == .Enum)
-                            @intToEnum(f.field_type, raw_value)
-                        else
-                            raw_value;
+                        args[i] = switch (@typeInfo(f.field_type)) {
+                            .Enum => @intToEnum(f.field_type, raw_value),
+                            .Struct => .{ .value = raw_value },
+                            else => raw_value,
+                        };
                     }
 
                     // TODO: move async call to where this is being invoked
@@ -201,19 +221,15 @@ pub fn ImportManager(comptime Imports: type) type {
                     // frame.* = @call(opts, func, args);
                     // const result = nosuspend await frame;
 
-                    const result = @call(.{}, func, args);
-                    const raw_result = if (@typeInfo(@TypeOf(result)) == .Enum)
-                        @enumToInt(result)
-                    else
-                        result;
-                    return switch (Unwrapped(@TypeOf(result))) {
+                    const result = try unwrap(@call(.{}, func, args));
+                    return switch (@TypeOf(result)) {
                         void => null,
-                        i32 => Op.Fixval{ .I32 = raw_result },
-                        i64 => Op.Fixval{ .I64 = raw_result },
-                        u32 => Op.Fixval{ .U32 = raw_result },
-                        u64 => Op.Fixval{ .U64 = raw_result },
-                        f32 => Op.Fixval{ .F32 = raw_result },
-                        f64 => Op.Fixval{ .F64 = raw_result },
+                        i32 => Op.Fixval{ .I32 = result },
+                        i64 => Op.Fixval{ .I64 = result },
+                        u32 => Op.Fixval{ .U32 = result },
+                        u64 => Op.Fixval{ .U64 = result },
+                        f32 => Op.Fixval{ .F32 = result },
+                        f64 => Op.Fixval{ .F64 = result },
                         else => @compileError("Signature not supported"),
                     };
                 }

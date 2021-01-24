@@ -19,6 +19,11 @@ pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
     _ = try instance.call("_start", .{});
 }
 
+pub const Size = u32;
+
+/// Non-negative file size or length of a region within a file.
+pub const Filesize: u64;
+
 /// Timestamp in nanoseconds.
 pub const Timestamp = u64;
 
@@ -47,14 +52,62 @@ pub const Errno = enum(u32) {
 };
 
 pub fn P(comptime T: type) type {
-    return enum(u32) {
-        _,
+    return struct {
+        value: u32,
 
+        const Self = @This();
         pub const Pointee = T;
+
+        // TODO: handle overflow
+        // TODO: handle endianness
+        fn get(self: Self, memory: []const u8) !T {
+            return @bitCast(T, memory[self.value..][0..@sizeOf(T)].*);
+        }
+
+        // TODO: handle overflow
+        // TODO: handle endianness
+        fn set(self: Self, memory: []u8, value: T) !void {
+            std.mem.copy(u8, memory[self.value..], std.mem.asBytes(&value));
+        }
+
+        // TODO: handle overflow
+        // TODO: handle endianness
+        fn setMany(self: Self, memory: []u8, value: []const T) !void {
+            std.mem.copy(u8, memory[self.value..], std.mem.sliceAsBytes(value));
+        }
     };
 }
 
 const imports = struct {
+    pub fn args_get(exec: *Execution, argv: P(P(u8)), argv_buf: P(u8)) !Errno {
+        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
+
+        var argv_ = argv;
+        var argv_buf_ = argv_buf;
+
+        for (wasi.argv) |arg| {
+            try argv_.set(exec.memory, argv_buf_);
+
+            try argv_buf_.setMany(exec.memory, arg);
+            argv_buf_.value += @intCast(u32, arg.len);
+            try argv_buf_.set(exec.memory, 0);
+            argv_buf_.value += 1;
+        }
+        return Errno.success;
+    }
+
+    pub fn args_sizes_get(exec: *Execution, argc: P(Size), argv_buf_size: P(Size)) !Errno {
+        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
+        try argc.set(exec.memory, @intCast(Size, wasi.argv.len));
+
+        var buf_size: usize = 0;
+        for (wasi.argv) |arg| {
+            buf_size += arg.len + 1;
+        }
+        try argv_buf_size.set(exec.memory, @intCast(Size, buf_size));
+        return Errno.success;
+    }
+
     pub fn clock_res_get(exec: *Execution, clock_id: ClockId, resolution: P(Timestamp)) Errno {
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
@@ -69,11 +122,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        std.mem.writeIntSliceLittle(
-            Timestamp,
-            exec.memory[@enumToInt(resolution)..],
-            @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec),
-        );
+        try resolution.set(exec.memory, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 
@@ -91,11 +140,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        std.mem.writeIntSliceLittle(
-            Timestamp,
-            exec.memory[@enumToInt(time)..],
-            @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec),
-        );
+        try time.set(exec.memory, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 };
