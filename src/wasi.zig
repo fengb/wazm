@@ -6,6 +6,7 @@ const Execution = @import("execution.zig");
 const Wasi = @This();
 
 argv: [][]u8,
+environ: [][]u8 = &.{},
 
 pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
     var module = try Module.parse(allocator, reader);
@@ -81,30 +82,47 @@ pub fn P(comptime T: type) type {
 const imports = struct {
     pub fn args_get(exec: *Execution, argv: P(P(u8)), argv_buf: P(u8)) !Errno {
         const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-
-        var argv_ = argv;
-        var argv_buf_ = argv_buf;
-
-        for (wasi.argv) |arg| {
-            try argv_.set(exec.memory, argv_buf_);
-
-            try argv_buf_.setMany(exec.memory, arg);
-            argv_buf_.value += @intCast(u32, arg.len);
-            try argv_buf_.set(exec.memory, 0);
-            argv_buf_.value += 1;
-        }
-        return Errno.success;
+        return strings_get(exec, wasi.argv, argv, argv_buf);
     }
 
     pub fn args_sizes_get(exec: *Execution, argc: P(Size), argv_buf_size: P(Size)) !Errno {
         const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-        try argc.set(exec.memory, @intCast(Size, wasi.argv.len));
+        return strings_sizes_get(exec, wasi.argv, argc, argv_buf_size);
+    }
+
+    pub fn environ_get(exec: *Execution, environ: P(P(u8)), environ_buf: P(u8)) !Errno {
+        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
+        return strings_get(exec, wasi.environ, environ, environ_buf);
+    }
+
+    pub fn environ_sizes_get(exec: *Execution, environc: P(Size), environ_buf_size: P(Size)) !Errno {
+        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
+        return strings_sizes_get(exec, wasi.environ, environc, environ_buf_size);
+    }
+
+    fn strings_get(exec: *Execution, strings: [][]u8, target: P(P(u8)), target_buf: P(u8)) !Errno {
+        var target_ = target;
+        var target_buf_ = target_buf;
+
+        for (strings) |string| {
+            try target_.set(exec.memory, target_buf_);
+
+            try target_buf_.setMany(exec.memory, string);
+            target_buf_.value += @intCast(u32, string.len);
+            try target_buf_.set(exec.memory, 0);
+            target_buf_.value += 1;
+        }
+        return Errno.success;
+    }
+
+    fn strings_sizes_get(exec: *Execution, strings: [][]u8, targetc: P(Size), target_buf_size: P(Size)) !Errno {
+        try targetc.set(exec.memory, @intCast(Size, strings.len));
 
         var buf_size: usize = 0;
-        for (wasi.argv) |arg| {
-            buf_size += arg.len + 1;
+        for (strings) |string| {
+            buf_size += string.len + 1;
         }
-        try argv_buf_size.set(exec.memory, @intCast(Size, buf_size));
+        try target_buf_size.set(exec.memory, @intCast(Size, buf_size));
         return Errno.success;
     }
 
