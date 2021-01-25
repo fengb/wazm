@@ -167,14 +167,8 @@ pub fn ImportManager(comptime Imports: type) type {
             return switch (@typeInfo(T)) {
                 .ErrorUnion => |eu_info| Unwrapped(eu_info.payload),
                 .Enum => |e_info| if (e_info.is_exhaustive) @compileError("Enum must be exhaustive") else e_info.tag_type,
-                .Struct => |s_info| {
-                    if (!@hasDecl(T, "Pointee") or
-                        s_info.fields.len != 1 or
-                        s_info.fields[0].field_type != u32)
-                    {
-                        @compileError("Struct can only be a P(ointer)");
-                    }
-                    return s_info.fields[0].field_type;
+                .Struct => {
+                    return std.meta.Int(.unsigned, @bitSizeOf(T));
                 },
                 else => T,
             };
@@ -183,10 +177,11 @@ pub fn ImportManager(comptime Imports: type) type {
         fn shim(comptime func: anytype) ImportFunc {
             return struct {
                 fn unwrap(raw: anytype) !Unwrapped(@TypeOf(raw)) {
-                    return switch (@typeInfo(@TypeOf(raw))) {
+                    const T = @TypeOf(raw);
+                    return switch (@typeInfo(T)) {
                         .ErrorUnion => unwrap(try raw),
                         .Enum => @enumToInt(raw),
-                        .Struct => raw.value,
+                        .Struct => @bitCast(Unwrapped(T), raw),
                         else => raw,
                     };
                 }
@@ -208,7 +203,7 @@ pub fn ImportManager(comptime Imports: type) type {
                         };
                         args[i] = switch (@typeInfo(f.field_type)) {
                             .Enum => @intToEnum(f.field_type, raw_value),
-                            .Struct => .{ .value = raw_value },
+                            .Struct => @bitCast(f.field_type, raw_value),
                             else => raw_value,
                         };
                     }

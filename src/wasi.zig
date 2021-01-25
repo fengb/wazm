@@ -46,14 +46,52 @@ pub const ClockId = enum(u32) {
 
 /// Error codes returned by functions. Not all of these error codes are returned by the functions provided by this API; some are used in higher-level library layers, and others are provided merely for alignment with POSIX.
 pub const Errno = enum(u32) {
+    /// No error occurred. System call completed successfully.
     success = 0,
+
+    /// Invalid argument.
     inval = 28,
     unexpected = 0xAAAA,
     _,
 };
 
+/// File descriptor rights, determining which actions may be performed.
+pub const Rights = packed struct {
+    fd_datasync: bool,
+    fd_read: bool,
+    fd_seek: bool,
+    fd_fdstat_set_flags: bool,
+    fd_sync: bool,
+    fd_tell: bool,
+    fd_write: bool,
+    fd_advise: bool,
+    fd_allocate: bool,
+    path_create_directory: bool,
+    path_create_file: bool,
+    path_link_source: bool,
+    path_link_target: bool,
+    path_open: bool,
+    fd_readdir: bool,
+    path_readlink: bool,
+    path_rename_source: bool,
+    path_rename_target: bool,
+    path_filestat_get: bool,
+    path_filestat_set_size: bool,
+    path_filestat_set_times: bool,
+    fd_filestat_get: bool,
+    fd_filestat_set_size: bool,
+    fd_filestat_set_times: bool,
+    path_symlink: bool,
+    path_remove_directory: bool,
+    path_unlink_file: bool,
+    poll_fd_readwrite: bool,
+    sock_shutdown: bool,
+    _pad: u3,
+    _pad1: u32,
+};
+
 pub fn P(comptime T: type) type {
-    return struct {
+    return extern struct {
         value: u32,
 
         const Self = @This();
