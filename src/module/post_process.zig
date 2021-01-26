@@ -261,6 +261,7 @@ const StackValidator = struct {
                 },
 
                 .select => {
+                    try self.types.checkPops(instr_idx, &.{.I32});
                     const top1 = try self.types.pop(instr_idx);
                     const top2 = try self.types.pop(instr_idx);
                     if (top1 != top2) {
@@ -272,7 +273,7 @@ const StackValidator = struct {
                 // Drops *any* value, no check needed
                 .drop => _ = try self.types.pop(instr_idx),
 
-                .br_table => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
+                .br_table => try self.types.checkPops(instr_idx, &.{.I32}),
 
                 else => {
                     for (op_meta.pop) |pop| {

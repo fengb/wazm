@@ -30,3 +30,29 @@ test "if/else" {
         std.testing.expectEqual(@as(i32, 42), result.?.I32);
     }
 }
+
+test "select" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (param i32) (result i32)
+        \\    i32.const 1
+        \\    i32.const 42
+        \\    local.get 0
+        \\    select)
+        \\  (export "if" (func 0)))
+    );
+    var module = try Wat.parse(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+
+    var instance = try module.instantiate(std.testing.allocator, null, struct {});
+    defer instance.deinit();
+
+    {
+        const result = try instance.call("if", .{@as(i32, 1)});
+        std.testing.expectEqual(@as(i32, 1), result.?.I32);
+    }
+    {
+        const result = try instance.call("if", .{@as(i32, 0)});
+        std.testing.expectEqual(@as(i32, 42), result.?.I32);
+    }
+}
