@@ -22,13 +22,16 @@ pub fn post_process(self: *Module) !void {
 
         // Fill in jump targets
         const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = stack_validator.types.list.items };
+
         for (body.code) |instr, instr_idx| {
             switch (instr.op) {
                 .br, .br_if => {
                     const block = stack_validator.blocks.upFrom(instr_idx, instr.arg.U32) orelse return error.JumpExceedsBlock;
                     const block_instr = body.code[block.start_idx];
-                    const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
-                    try jump_targeter.add(block.data, instr_idx, target_idx);
+                    try jump_targeter.add(block.data, .{
+                        .from = instr_idx,
+                        .target = if (block_instr.op == .loop) block.start_idx else block.end_idx,
+                    });
                 },
                 .br_table => {
                     const targets = try self.arena.allocator.alloc(Module.JumpTarget, instr.arg.Array.len);
@@ -44,12 +47,22 @@ pub fn post_process(self: *Module) !void {
                 },
                 .@"else" => {
                     const block = stack_validator.blocks.list.items[instr_idx].?;
-                    try jump_targeter.add(block.data, instr_idx, block.end_idx);
+                    try jump_targeter.add(block.data, .{
+                        .from = instr_idx,
+                        .target = block.end_idx,
+                        // When the "if" block has a value, it is left on the stack at
+                        // the "else", which needs to carry it forward
+                        // This is either off-by-one during stack analysis or jumping... :(
+                        .stack_adjust = @boolToInt(block.data != .Empty),
+                    });
                 },
                 .@"if" => {
                     const block = stack_validator.blocks.list.items[instr_idx].?;
-                    // "if" jumps to *after* the corresponding else
-                    try jump_targeter.add(block.data, instr_idx, block.end_idx + 1);
+                    try jump_targeter.add(block.data, .{
+                        .from = instr_idx,
+                        // "if" jumps to *after* the corresponding else
+                        .target = block.end_idx + 1,
+                    });
                 },
                 else => {},
             }
@@ -62,15 +75,22 @@ const JumpTargeter = struct {
     func_idx: usize,
     types: []const ?StackLedger(Module.Type.Value).Node,
 
-    fn add(self: JumpTargeter, block_type: Module.Type.Block, from_idx: usize, target_idx: usize) !void {
+    fn add(self: JumpTargeter, block_type: Module.Type.Block, args: struct {
+        from: usize,
+        target: usize,
+        stack_adjust: u32 = 0,
+    }) !void {
+        // stackDepth reflects the status *after* execution
+        // and we're jumping to right *before* the instruction
+        const target_depth = stackDepth(self.types[args.target - 1]);
         try self.module.jumps.putNoClobber(
             &self.module.arena.allocator,
-            .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
+            .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, args.from) },
             .{
                 .one = .{
                     .has_value = block_type != .Empty,
-                    .addr = @intCast(u32, target_idx),
-                    .stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[target_idx]),
+                    .addr = @intCast(u32, args.target),
+                    .stack_unroll = stackDepth(self.types[args.from]) + args.stack_adjust - target_depth,
                 },
             },
         );
@@ -202,7 +222,11 @@ const StackValidator = struct {
                     });
                 },
                 .@"else" => {
+                    const block_idx = (self.blocks.top orelse return error.StackMismatch).start_idx;
                     const top = try self.blocks.pop(instr_idx);
+                    if (body.code[block_idx].op != .@"if") {
+                        return error.MismatchElseWithoutIf;
+                    }
                     // This is the reason blocks and types must be interlaced. :(
                     if (top != .Empty) {
                         _ = try self.types.pop(instr_idx);
@@ -387,13 +411,13 @@ test "jump locations" {
 test "if/else locations" {
     var fbs = std.io.fixedBufferStream(
         \\(module
-        \\  (func
-        \\    i32.const 0  ;; 0
-        \\    if           ;; 1
-        \\      nop        ;; 2
-        \\    else         ;; 3
-        \\      nop        ;; 4
-        \\    end          ;; 5
+        \\  (func (result i32)
+        \\    i32.const 0     ;; 0
+        \\    if (result i32) ;; 1
+        \\      i32.const 1   ;; 2
+        \\    else            ;; 3
+        \\      i32.const 0   ;; 4
+        \\    end             ;; 5
         \\  ))
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
