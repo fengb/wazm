@@ -435,7 +435,7 @@ const Impl = struct {
         // Do nothing with the popped value
     }
     pub fn @"0x1B select"(ctx: *Execution, arg: Void, pop: *Triple(Fixval, Fixval, I32)) Fixval {
-        return if (pop._2.data == 0) pop._0 else pop._1;
+        return if (pop._2.data != 0) pop._0 else pop._1;
     }
 
     pub fn @"0x20 local.get"(ctx: *Execution, arg: U32, pop: *Void) Fixval {
