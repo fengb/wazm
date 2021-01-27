@@ -146,6 +146,10 @@ pub fn StackLedger(comptime T: type) type {
 
         pub fn upFrom(self: Self, start_idx: usize, levels: usize) ?*const Node {
             var node = &(self.list.items[start_idx] orelse return null);
+            if (levels == 0) {
+                return &(self.list.items[node.start_idx].?);
+            }
+
             var l = levels;
             while (l > 0) {
                 l -= 1;

@@ -20,6 +20,7 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(&all_tests.step);
 
     addScript(b, "opcodes");
+    addScript(b, "fibo-bench");
 }
 
 fn addScript(b: *std.build.Builder, name: []const u8) void {
