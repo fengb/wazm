@@ -44,13 +44,54 @@ pub const ClockId = enum(u32) {
     _,
 };
 
+/// A file descriptor handle.
+const Fd = enum(u32) {
+    stdin = 0,
+    stdout = 1,
+    stderr = 2,
+    _,
+};
+
+const Iovec = extern struct {
+    buf: P(u8),
+    len: Size,
+};
+
 /// Error codes returned by functions. Not all of these error codes are returned by the functions provided by this API; some are used in higher-level library layers, and others are provided merely for alignment with POSIX.
 pub const Errno = enum(u32) {
     /// No error occurred. System call completed successfully.
     success = 0,
 
+    /// Permission denied.
+    acces = 2,
+
+    /// Resource unavailable, or operation would block.
+    again = 6,
+
+    /// Bad file descriptor.
+    badf = 8,
+
+    /// Reserved.
+    dquot = 19,
+
+    /// File too large.
+    fbig = 22,
+
     /// Invalid argument.
     inval = 28,
+
+    /// I/O error.
+    io = 29,
+
+    /// No buffer space available.
+    nobufs = 42,
+
+    /// No space left on device.
+    nospc = 51,
+
+    /// Broken pipe.
+    pipe = 64,
+
     unexpected = 0xAAAA,
     _,
 };
@@ -105,6 +146,17 @@ pub fn P(comptime T: type) type {
 
         // TODO: handle overflow
         // TODO: handle endianness
+        fn getOffset(self: Self, memory: []const u8, offset: Size) !T {
+            const size = @sizeOf(T);
+            return @bitCast(T, memory[self.value + offset * size ..][0..size].*);
+        }
+
+        fn getMany(self: Self, memory: []u8, size: Size) ![]u8 {
+            return memory[self.value..][0..size];
+        }
+
+        // TODO: handle overflow
+        // TODO: handle endianness
         fn set(self: Self, memory: []u8, value: T) !void {
             std.mem.copy(u8, memory[self.value..], std.mem.asBytes(&value));
         }
@@ -136,6 +188,38 @@ const imports = struct {
     pub fn environ_sizes_get(exec: *Execution, environc: P(Size), environ_buf_size: P(Size)) !Errno {
         const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
         return strings_sizes_get(exec, wasi.environ, environc, environ_buf_size);
+    }
+
+    pub fn fd_write(exec: *Execution, fd: Fd, iovs: P(Iovec), iovs_len: Size, nread: P(Size)) !Errno {
+        var os_vec: [128]std.os.iovec_const = undefined;
+        var i: u32 = 0;
+        while (i < iovs_len) : (i += 1) {
+            const iov = try iovs.getOffset(exec.memory, i);
+            const slice = try iov.buf.getMany(exec.memory, iov.len);
+            os_vec[i] = .{ .iov_base = slice.ptr, .iov_len = slice.len };
+        }
+
+        const handle = switch (fd) {
+            .stdin => unreachable,
+            .stdout => std.io.getStdOut().handle,
+            .stderr => std.io.getStdErr().handle,
+            else => unreachable,
+        };
+        var written = std.os.writev(handle, os_vec[0..iovs_len]) catch |err| return switch (err) {
+            error.DiskQuota => Errno.dquot,
+            error.FileTooBig => Errno.fbig,
+            error.InputOutput => Errno.io,
+            error.NoSpaceLeft => Errno.nospc,
+            error.AccessDenied => Errno.acces,
+            error.BrokenPipe => Errno.pipe,
+            error.SystemResources => Errno.nobufs,
+            error.OperationAborted => unreachable,
+            error.NotOpenForWriting => Errno.badf,
+            error.WouldBlock => Errno.again,
+            error.Unexpected => Errno.unexpected,
+        };
+        try nread.set(exec.memory, @intCast(u32, written));
+        return Errno.success;
     }
 
     fn strings_get(exec: *Execution, strings: [][]u8, target: P(P(u8)), target_buf: P(u8)) !Errno {
