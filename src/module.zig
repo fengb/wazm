@@ -3,6 +3,7 @@ const Instance = @import("instance.zig");
 const Op = @import("op.zig");
 pub const post_process = @import("module/post_process.zig").post_process;
 
+const log = std.log.scoped(.wazm);
 const magic_number = std.mem.readIntLittle(u32, "\x00asm");
 
 const Module = @This();
@@ -234,7 +235,11 @@ test "readVarint" {
 
 fn readVarintEnum(comptime E: type, reader: anytype) !E {
     const raw = try readVarint(std.meta.TagType(E), reader);
-    return try std.meta.intToEnum(E, raw);
+    if (@typeInfo(E).Enum.is_exhaustive) {
+        return try std.meta.intToEnum(E, raw);
+    } else {
+        return @intToEnum(E, raw);
+    }
 }
 
 fn expectEos(reader: anytype) !void {
@@ -350,6 +355,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     const return_count = try readVarint(u1, payload.reader());
                     t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.reader());
                 }
+                try expectEos(payload.reader());
             },
             .Import => {
                 const count = try readVarint(u32, payload.reader());
@@ -373,13 +379,14 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                         .Global => @panic("TODO"),
                     };
                 }
+                try expectEos(payload.reader());
             },
             .Function => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.function, count)) |*f| {
-                    const index = try readVarint(u32, payload.reader());
-                    f.type_idx = @intToEnum(Index.FuncType, index);
+                    f.type_idx = try readVarintEnum(Index.FuncType, payload.reader());
                 }
+                try expectEos(payload.reader());
             },
             .Table => {
                 const count = try readVarint(u32, payload.reader());
@@ -390,6 +397,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     t.limits.initial = try readVarint(u32, payload.reader());
                     t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
+                try expectEos(payload.reader());
             },
             .Memory => {
                 const count = try readVarint(u32, payload.reader());
@@ -398,6 +406,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     m.limits.initial = try readVarint(u32, payload.reader());
                     m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
                 }
+                try expectEos(payload.reader());
             },
             .Global => {
                 const count = try readVarint(u32, payload.reader());
@@ -406,6 +415,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     g.@"type".mutability = (try readVarint(u1, payload.reader())) == 1;
                     g.init = .{}; // FIXME
                 }
+                try expectEos(payload.reader());
             },
             .Export => {
                 const count = try readVarint(u32, payload.reader());
@@ -417,26 +427,26 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     e.kind = try readVarintEnum(ExternalKind, payload.reader());
                     e.index = try readVarint(u32, payload.reader());
                 }
+                try expectEos(payload.reader());
             },
             .Start => {
-                const index = try readVarint(u32, payload.reader());
                 result.start = .{
-                    .index = @intToEnum(Index.Function, index),
+                    .index = try readVarintEnum(Index.Function, payload.reader()),
                 };
+                try expectEos(payload.reader());
             },
             .Element => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.element, count)) |*e| {
-                    const index = try readVarint(u32, payload.reader());
-                    e.index = @intToEnum(Index.Table, index);
+                    e.index = try readVarintEnum(Index.Table, payload.reader());
                     e.offset = .{}; // FIXME
 
                     const num_elem = try readVarint(u32, payload.reader());
                     for (try result.allocInto(&e.elems, count)) |*func| {
-                        const func_index = try readVarint(u32, payload.reader());
-                        func.* = @intToEnum(Index.Function, func_index);
+                        func.* = try readVarintEnum(Index.Function, payload.reader());
                     }
                 }
+                try expectEos(payload.reader());
             },
             .Code => {
                 const count = try readVarint(u32, payload.reader());
@@ -521,12 +531,12 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                         }
                     };
                 }
+                try expectEos(payload.reader());
             },
             .Data => {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.data, count)) |*d| {
-                    const index = try readVarint(u32, payload.reader());
-                    d.index = @intToEnum(Index.Memory, index);
+                    d.index = try readVarintEnum(Index.Memory, payload.reader());
                     d.offset = .{}; // FIXME
 
                     const size = try readVarint(u32, payload.reader());
@@ -534,10 +544,16 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     try payload.reader().readNoEof(data);
                     d.data = data;
                 }
+                try expectEos(payload.reader());
             },
             .Custom => @panic("TODO"),
         }
-        try expectEos(payload.reader());
+
+        // Putting this in all the switch paths makes debugging much easier
+        // Leaving an extra one here in case one of the paths is missing
+        if (std.builtin.mode == .Debug) {
+            try expectEos(payload.reader());
+        }
     }
 
     try result.post_process();
