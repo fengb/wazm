@@ -17,17 +17,17 @@ pub fn post_process(self: *Module) !void {
 
     var stack_validator = StackValidator.init(&temp_arena.allocator);
 
-    for (self.code) |body, f| {
+    for (self.code) |code, f| {
         try stack_validator.process(self, f);
 
         // Fill in jump targets
         const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = stack_validator.types.list.items };
 
-        for (body.code) |instr, instr_idx| {
+        for (code.body) |instr, instr_idx| {
             switch (instr.op) {
                 .br, .br_if => {
                     const block = stack_validator.blocks.upFrom(instr_idx, instr.arg.U32) orelse return error.JumpExceedsBlock;
-                    const block_instr = body.code[block.start_idx];
+                    const block_instr = code.body[block.start_idx];
                     try jump_targeter.add(block.data, .{
                         .from = instr_idx,
                         .target = if (block_instr.op == .loop) block.start_idx else block.end_idx,
@@ -38,7 +38,7 @@ pub fn post_process(self: *Module) !void {
                     for (targets) |*target, t| {
                         const block_level = instr.arg.Array.ptr[t];
                         const block = stack_validator.blocks.upFrom(instr_idx, block_level) orelse return error.JumpExceedsBlock;
-                        const block_instr = body.code[block.start_idx];
+                        const block_instr = code.body[block.start_idx];
                         const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
                         target.addr = @intCast(u32, if (block_instr.op == .loop) block.start_idx else block.end_idx);
                         target.has_value = block.data != .Empty;
@@ -200,15 +200,15 @@ const StackValidator = struct {
         };
     }
 
-    pub fn process(self: *StackValidator, module: *const Module, body_idx: usize) !void {
-        const func = module.function[body_idx];
+    pub fn process(self: *StackValidator, module: *const Module, code_idx: usize) !void {
+        const func = module.function[code_idx];
         const func_type = module.@"type"[@enumToInt(func.type_idx)];
-        const body = module.code[body_idx];
+        const code = module.code[code_idx];
 
-        try self.types.reset(body.code.len);
-        try self.blocks.reset(body.code.len);
+        try self.types.reset(code.body.len);
+        try self.blocks.reset(code.body.len);
 
-        for (body.code) |instr, instr_idx| {
+        for (code.body) |instr, instr_idx| {
             const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
                 // Block operations
@@ -228,7 +228,7 @@ const StackValidator = struct {
                 .@"else" => {
                     const block_idx = (self.blocks.top orelse return error.StackMismatch).start_idx;
                     const top = try self.blocks.pop(instr_idx);
-                    if (body.code[block_idx].op != .@"if") {
+                    if (code.body[block_idx].op != .@"if") {
                         return error.MismatchElseWithoutIf;
                     }
                     // This is the reason blocks and types must be interlaced. :(
@@ -256,10 +256,10 @@ const StackValidator = struct {
                     }
                 },
 
-                .@"local.set" => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, body.locals)}),
-                .@"local.get" => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, body.locals)),
+                .@"local.set" => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, code.locals)}),
+                .@"local.get" => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, code.locals)),
                 .@"local.tee" => {
-                    const typ = localType(instr.arg.U32, func_type.param_types, body.locals);
+                    const typ = localType(instr.arg.U32, func_type.param_types, code.locals);
                     try self.types.checkPops(instr_idx, &.{typ});
                     self.types.pushAt(instr_idx, typ);
                 },
@@ -295,7 +295,7 @@ const StackValidator = struct {
         }
 
         if (func_type.return_type) |return_type| {
-            try self.types.checkPops(body.code.len, &.{return_type});
+            try self.types.checkPops(code.body.len, &.{return_type});
         }
 
         if (self.types.top != null) {

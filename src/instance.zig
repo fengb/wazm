@@ -55,15 +55,15 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         }
     }
 
-    for (module.code) |body, i| {
+    for (module.code) |code, i| {
         const type_idx = @enumToInt(module.function[i].type_idx);
         const func_type = module.@"type"[type_idx];
         try funcs.append(.{
             .func_type = type_idx,
             .params = func_type.param_types,
             .result = func_type.return_type,
-            .locals = body.locals,
-            .kind = .{ .instrs = body.code },
+            .locals = code.locals,
+            .kind = .{ .instrs = code.body },
         });
     }
 

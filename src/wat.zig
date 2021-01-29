@@ -474,13 +474,13 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     else => return err,
                 }
 
-                var code = std.ArrayList(Module.Instr).init(&arena.allocator);
+                var body = std.ArrayList(Module.Instr).init(&arena.allocator);
                 var val_buf: [0x100]u8 = undefined;
                 while (try command.nextAtom(&val_buf)) |val| {
                     const op = std.meta.stringToEnum(Op.Code, val) orelse return error.OpNotFound;
                     const op_meta = Op.Meta.of(op);
 
-                    try code.append(.{
+                    try body.append(.{
                         .op = op,
                         .pop_len = @intCast(u8, op_meta.pop.len),
                         .arg = switch (op_meta.arg_kind) {
@@ -532,7 +532,7 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
                 try codes.append(.{
                     .locals = locals.items,
-                    .code = code.items,
+                    .body = body.items,
                 });
 
                 try types.append(.{
@@ -639,7 +639,7 @@ test "parseNoValidate" {
         std.testing.expectEqual(@as(usize, 1), code.locals.len);
         std.testing.expectEqual(Module.Type.Value.F64, code.locals[0]);
 
-        std.testing.expectEqual(@as(usize, 3), code.code.len);
+        std.testing.expectEqual(@as(usize, 3), code.body.len);
     }
     {
         var fbs = std.io.fixedBufferStream(
@@ -696,22 +696,22 @@ test "parse blocks" {
     var module = try parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    const code = module.code[0].code;
-    std.testing.expectEqual(@as(usize, 6), code.len);
+    const body = module.code[0].body;
+    std.testing.expectEqual(@as(usize, 6), body.len);
 
-    std.testing.expectEqual(Op.Code.block, code[0].op);
-    std.testing.expectEqual(Op.Arg.Type.I32, code[0].arg.Type);
+    std.testing.expectEqual(Op.Code.block, body[0].op);
+    std.testing.expectEqual(Op.Arg.Type.I32, body[0].arg.Type);
 
-    std.testing.expectEqual(Op.Code.loop, code[1].op);
-    std.testing.expectEqual(Op.Arg.Type.Void, code[1].arg.Type);
+    std.testing.expectEqual(Op.Code.loop, body[1].op);
+    std.testing.expectEqual(Op.Arg.Type.Void, body[1].arg.Type);
 
-    std.testing.expectEqual(Op.Code.br, code[2].op);
-    std.testing.expectEqual(@as(u32, 0), code[2].arg.U32);
+    std.testing.expectEqual(Op.Code.br, body[2].op);
+    std.testing.expectEqual(@as(u32, 0), body[2].arg.U32);
 
-    std.testing.expectEqual(Op.Code.br, code[3].op);
-    std.testing.expectEqual(@as(u32, 1), code[3].arg.U32);
+    std.testing.expectEqual(Op.Code.br, body[3].op);
+    std.testing.expectEqual(@as(u32, 1), body[3].arg.U32);
 
-    std.testing.expectEqual(Op.Code.end, code[4].op);
+    std.testing.expectEqual(Op.Code.end, body[4].op);
 
-    std.testing.expectEqual(Op.Code.end, code[5].op);
+    std.testing.expectEqual(Op.Code.end, body[5].op);
 }
