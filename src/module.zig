@@ -179,7 +179,29 @@ pub const Instr = struct {
     arg: Op.Arg,
 };
 
-const InitExpr = struct {};
+const InitExpr = union(enum) {
+    i32_const: i32,
+    i64_const: i64,
+    f32_const: f32,
+    f64_const: f64,
+    global_get: u32,
+
+    fn parse(reader: anytype) !InitExpr {
+        const opcode = @intToEnum(std.wasm.Opcode, try reader.readByte());
+        const result: InitExpr = switch (opcode) {
+            .i32_const => .{ .i32_const = try readVarint(i32, reader) },
+            .i64_const => .{ .i64_const = try readVarint(i64, reader) },
+            .f32_const => .{ .f32_const = @bitCast(f32, try reader.readIntLittle(i32)) },
+            .f64_const => .{ .f64_const = @bitCast(f64, try reader.readIntLittle(i64)) },
+            .global_get => .{ .global_get = try readVarint(u32, reader) },
+            else => return error.UnsupportedInitExpr,
+        };
+        if (std.wasm.opcode(.end) != try reader.readByte()) {
+            return error.InitExprTerminationError;
+        }
+        return result;
+    }
+};
 
 fn readVarint(comptime T: type, reader: anytype) !T {
     const readFn = switch (@typeInfo(T).Int.signedness) {
@@ -398,7 +420,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 for (try result.allocInto(&result.global, count)) |*g| {
                     g.@"type".content_type = try readVarintEnum(Type.Value, payload.reader());
                     g.@"type".mutability = (try readVarint(u1, payload.reader())) == 1;
-                    g.init = .{}; // FIXME
+                    g.init = try InitExpr.parse(payload.reader());
                 }
                 try expectEos(payload.reader());
             },
@@ -425,7 +447,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.element, count)) |*e| {
                     e.index = try readVarintEnum(Index.Table, payload.reader());
-                    e.offset = .{}; // FIXME
+                    e.offset = try InitExpr.parse(payload.reader());
 
                     const num_elem = try readVarint(u32, payload.reader());
                     for (try result.allocInto(&e.elems, count)) |*func| {
@@ -523,7 +545,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.data, count)) |*d| {
                     d.index = try readVarintEnum(Index.Memory, payload.reader());
-                    d.offset = .{}; // FIXME
+                    d.offset = try InitExpr.parse(payload.reader());
 
                     const size = try readVarint(u32, payload.reader());
                     const data = try result.arena.allocator.alloc(u8, size);
@@ -576,11 +598,6 @@ test "module with only type" {
 }
 
 test "module with function body" {
-    // (module
-    //   (type (;0;) (func (result i32)))
-    //   (func (;0;) (type 0) (result i32)
-    //     i32.const 420)
-    //   (export "a" (func 0)))
     const raw_bytes = empty_raw_bytes ++ //          (module
         "\x01\x05\x01\x60\x00\x01\x7f" ++ //           (type (;0;) (func (result i32)))
         "\x03\x02\x01\x00" ++ //                       (func (;0;) (type 0)
@@ -602,10 +619,17 @@ test "module with function body" {
     std.testing.expectEqual(@as(usize, 1), module.code.len);
     std.testing.expectEqual(@as(usize, 1), module.code[0].body.len);
     std.testing.expectEqual(std.wasm.Opcode.i32_const, module.code[0].body[0].op);
+}
 
-    var instance = try module.instantiate(std.testing.allocator, null, struct {});
-    defer instance.deinit();
+test "global definitions" {
+    const raw_bytes = empty_raw_bytes ++ //                  (module
+        "\x06\x09\x01\x7f\x01\x41\x80\x80\xc0\x00\x0b" ++ //   (global (mut i32) (i32.const 1048576)))
+        "";
+    var ios = std.io.fixedBufferStream(raw_bytes);
+    var module = try Module.parse(std.testing.allocator, ios.reader());
+    defer module.deinit();
 
-    const result = try instance.call("a", &[0]Instance.Value{});
-    std.testing.expectEqual(@as(isize, 420), result.?.I32);
+    std.testing.expectEqual(@as(usize, 1), module.global.len);
+    std.testing.expectEqual(Type.Value.I32, module.global[0].type.content_type);
+    std.testing.expectEqual(true, module.global[0].type.mutability);
 }
