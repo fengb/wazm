@@ -8,6 +8,8 @@ const Wasi = @This();
 argv: [][]u8,
 environ: [][]u8 = &.{},
 
+const P = Memory.P;
+
 pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
     var module = try Module.parse(allocator, reader);
     defer module.deinit();
@@ -131,44 +133,6 @@ pub const Rights = packed struct {
     _pad1: u32,
 };
 
-pub fn P(comptime T: type) type {
-    return extern struct {
-        value: u32,
-
-        const Self = @This();
-        pub const Pointee = T;
-
-        // TODO: handle overflow
-        // TODO: handle endianness
-        fn get(self: Self, memory: []const u8) !T {
-            return @bitCast(T, memory[self.value..][0..@sizeOf(T)].*);
-        }
-
-        // TODO: handle overflow
-        // TODO: handle endianness
-        fn getOffset(self: Self, memory: []const u8, offset: Size) !T {
-            const size = @sizeOf(T);
-            return @bitCast(T, memory[self.value + offset * size ..][0..size].*);
-        }
-
-        fn getMany(self: Self, memory: []u8, size: Size) ![]u8 {
-            return memory[self.value..][0..size];
-        }
-
-        // TODO: handle overflow
-        // TODO: handle endianness
-        fn set(self: Self, memory: []u8, value: T) !void {
-            std.mem.copy(u8, memory[self.value..], std.mem.asBytes(&value));
-        }
-
-        // TODO: handle overflow
-        // TODO: handle endianness
-        fn setMany(self: Self, memory: []u8, value: []const T) !void {
-            std.mem.copy(u8, memory[self.value..], std.mem.sliceAsBytes(value));
-        }
-    };
-}
-
 const imports = struct {
     pub fn args_get(mem: *Memory, argv: P(P(u8)), argv_buf: P(u8)) !Errno {
         const wasi = mem.ext(Wasi);
@@ -194,8 +158,8 @@ const imports = struct {
         var os_vec: [128]std.os.iovec_const = undefined;
         var i: u32 = 0;
         while (i < iovs_len) : (i += 1) {
-            const iov = try iovs.getOffset(mem.data, i);
-            const slice = try iov.buf.getMany(mem.data, iov.len);
+            const iov = try mem.get(try iovs.offset(i));
+            const slice = try mem.getMany(iov.buf, iov.len);
             os_vec[i] = .{ .iov_base = slice.ptr, .iov_len = slice.len };
         }
 
@@ -218,7 +182,7 @@ const imports = struct {
             error.WouldBlock => Errno.again,
             error.Unexpected => Errno.unexpected,
         };
-        try nread.set(mem.data, @intCast(u32, written));
+        try mem.set(nread, @intCast(u32, written));
         return Errno.success;
     }
 
@@ -227,28 +191,28 @@ const imports = struct {
         var target_buf_ = target_buf;
 
         for (strings) |string| {
-            try target_.set(mem.data, target_buf_);
+            try mem.set(target_, target_buf_);
 
-            try target_buf_.setMany(mem.data, string);
-            target_buf_.value += @intCast(u32, string.len);
-            try target_buf_.set(mem.data, 0);
-            target_buf_.value += 1;
+            try mem.setMany(target_buf_, string);
+            target_buf_.addr += @intCast(u32, string.len);
+            try mem.set(target_buf_, 0);
+            target_buf_.addr += 1;
         }
         return Errno.success;
     }
 
     fn strings_sizes_get(mem: *Memory, strings: [][]u8, targetc: P(Size), target_buf_size: P(Size)) !Errno {
-        try targetc.set(mem.data, @intCast(Size, strings.len));
+        try mem.set(targetc, @intCast(Size, strings.len));
 
         var buf_size: usize = 0;
         for (strings) |string| {
             buf_size += string.len + 1;
         }
-        try target_buf_size.set(mem.data, @intCast(Size, buf_size));
+        try mem.set(target_buf_size, @intCast(Size, buf_size));
         return Errno.success;
     }
 
-    pub fn clock_res_get(mem: *Memory, clock_id: ClockId, resolution: P(Timestamp)) Errno {
+    pub fn clock_res_get(mem: *Memory, clock_id: ClockId, resolution: P(Timestamp)) !Errno {
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -262,11 +226,11 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try resolution.set(mem.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try mem.set(resolution, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 
-    pub fn clock_time_get(mem: *Memory, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) Errno {
+    pub fn clock_time_get(mem: *Memory, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) !Errno {
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -280,7 +244,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try time.set(mem.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try mem.set(time, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 };

@@ -33,25 +33,58 @@ pub fn grow(self: *Memory, additional_pages: u16) !u16 {
     return @intCast(u16, new_size);
 }
 
-// TODO: move these memory methods?
-pub fn load(self: Memory, comptime T: type, start: usize, offset: usize) !T {
+pub fn load(self: Memory, comptime T: type, start: u32, offset: u32) !T {
     const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
-    const raw = std.mem.readIntLittle(Int, try self.ptr(start, offset, @sizeOf(T)));
-    return @bitCast(T, raw);
+    const idx = try std.math.add(u32, start, offset);
+    const bytes = try self.chunk(idx, @sizeOf(T));
+    return @bitCast(T, std.mem.readIntLittle(Int, bytes));
 }
 
-pub fn store(self: Memory, comptime T: type, start: usize, offset: usize, value: T) !void {
-    const bytes = try self.ptr(start, offset, @sizeOf(T));
+pub fn store(self: Memory, comptime T: type, start: u32, offset: u32, value: T) !void {
     const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const idx = try std.math.add(u32, start, offset);
+    const bytes = try self.chunk(idx, @sizeOf(T));
     std.mem.writeIntLittle(Int, bytes, @bitCast(Int, value));
 }
 
-fn ptr(self: Memory, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
-    const tail = start +% offset +% (length - 1);
-    const is_overflow = tail < start;
-    const is_seg_fault = tail >= self.data.len;
-    if (is_overflow or is_seg_fault) {
+fn chunk(self: Memory, idx: u32, comptime size: u32) !*[size]u8 {
+    const end = try std.math.add(u32, idx, size - 1);
+    if (end >= self.data.len) {
         return error.OutOfBounds;
     }
-    return self.data[start + offset ..][0..length];
+    return self.data[idx..][0..size];
+}
+
+pub fn get(self: Memory, ptr: anytype) !@TypeOf(ptr).Pointee {
+    return self.load(@TypeOf(ptr).Pointee, ptr.addr, 0);
+}
+
+pub fn getMany(self: Memory, ptr: anytype, size: u32) ![]u8 {
+    return self.data[ptr.addr..][0..size];
+}
+
+pub fn set(self: Memory, ptr: anytype, value: @TypeOf(ptr).Pointee) !void {
+    return self.store(@TypeOf(ptr).Pointee, ptr.addr, 0, value);
+}
+
+pub fn setMany(self: Memory, ptr: anytype, values: []const @TypeOf(ptr).Pointee) !void {
+    for (values) |value, i| {
+        try self.set(try ptr.offset(@intCast(u32, i)), value);
+    }
+}
+
+pub fn P(comptime T: type) type {
+    return extern struct {
+        addr: u32,
+
+        pub const Pointee = T;
+
+        pub fn init(addr: u32) @This() {
+            return .{ .addr = addr };
+        }
+
+        pub fn offset(self: @This(), change: u32) !@This() {
+            return @This(){ .addr = try std.math.add(u32, self.addr, change) };
+        }
+    };
 }
