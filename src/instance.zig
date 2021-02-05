@@ -3,13 +3,14 @@ const std = @import("std");
 const Module = @import("module.zig");
 const Op = @import("op.zig");
 const Execution = @import("execution.zig");
+const Memory = @import("Memory.zig");
 
 const Instance = @This();
 
 module: *const Module,
 allocator: *std.mem.Allocator,
 context: ?*c_void,
-memory: []u8,
+memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
 
@@ -70,7 +71,7 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
     return Instance{
         .module = module,
         .mutex = .{},
-        .memory = try allocator.alloc(u8, 65536),
+        .memory = try Memory.init(allocator, 1),
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
         .allocator = allocator,
@@ -80,7 +81,7 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
 
 pub fn deinit(self: *Instance) void {
     self.allocator.free(self.funcs);
-    self.allocator.free(self.memory);
+    self.memory.deinit();
     self.exports.deinit();
     self.* = undefined;
 }

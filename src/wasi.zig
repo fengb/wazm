@@ -194,8 +194,8 @@ const imports = struct {
         var os_vec: [128]std.os.iovec_const = undefined;
         var i: u32 = 0;
         while (i < iovs_len) : (i += 1) {
-            const iov = try iovs.getOffset(exec.memory, i);
-            const slice = try iov.buf.getMany(exec.memory, iov.len);
+            const iov = try iovs.getOffset(exec.memory.data, i);
+            const slice = try iov.buf.getMany(exec.memory.data, iov.len);
             os_vec[i] = .{ .iov_base = slice.ptr, .iov_len = slice.len };
         }
 
@@ -218,7 +218,7 @@ const imports = struct {
             error.WouldBlock => Errno.again,
             error.Unexpected => Errno.unexpected,
         };
-        try nread.set(exec.memory, @intCast(u32, written));
+        try nread.set(exec.memory.data, @intCast(u32, written));
         return Errno.success;
     }
 
@@ -227,24 +227,24 @@ const imports = struct {
         var target_buf_ = target_buf;
 
         for (strings) |string| {
-            try target_.set(exec.memory, target_buf_);
+            try target_.set(exec.memory.data, target_buf_);
 
-            try target_buf_.setMany(exec.memory, string);
+            try target_buf_.setMany(exec.memory.data, string);
             target_buf_.value += @intCast(u32, string.len);
-            try target_buf_.set(exec.memory, 0);
+            try target_buf_.set(exec.memory.data, 0);
             target_buf_.value += 1;
         }
         return Errno.success;
     }
 
     fn strings_sizes_get(exec: *Execution, strings: [][]u8, targetc: P(Size), target_buf_size: P(Size)) !Errno {
-        try targetc.set(exec.memory, @intCast(Size, strings.len));
+        try targetc.set(exec.memory.data, @intCast(Size, strings.len));
 
         var buf_size: usize = 0;
         for (strings) |string| {
             buf_size += string.len + 1;
         }
-        try target_buf_size.set(exec.memory, @intCast(Size, buf_size));
+        try target_buf_size.set(exec.memory.data, @intCast(Size, buf_size));
         return Errno.success;
     }
 
@@ -262,7 +262,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try resolution.set(exec.memory, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try resolution.set(exec.memory.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 
@@ -280,7 +280,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try time.set(exec.memory, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try time.set(exec.memory.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 };

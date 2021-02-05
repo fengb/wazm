@@ -455,89 +455,83 @@ const Impl = struct {
         ctx.setGlobal(arg.data, pop.*);
     }
     pub fn @"0x28 i32.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return try ctx.load(i32, pop.data, mem.offset);
+        return try ctx.memory.load(i32, pop.data, mem.offset);
     }
     pub fn @"0x29 i64.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(i64, pop.data, mem.offset);
+        return try ctx.memory.load(i64, pop.data, mem.offset);
     }
     pub fn @"0x2A f32.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !f32 {
-        return try ctx.load(f32, pop.data, mem.offset);
+        return try ctx.memory.load(f32, pop.data, mem.offset);
     }
     pub fn @"0x2B f64.load"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !f64 {
-        return try ctx.load(f64, pop.data, mem.offset);
+        return try ctx.memory.load(f64, pop.data, mem.offset);
     }
     pub fn @"0x2C i32.load8_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return try ctx.load(i8, pop.data, mem.offset);
+        return try ctx.memory.load(i8, pop.data, mem.offset);
     }
     pub fn @"0x2D i32.load8_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !u32 {
-        return try ctx.load(u8, pop.data, mem.offset);
+        return try ctx.memory.load(u8, pop.data, mem.offset);
     }
     pub fn @"0x2E i32.load16_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i32 {
-        return try ctx.load(i16, pop.data, mem.offset);
+        return try ctx.memory.load(i16, pop.data, mem.offset);
     }
     pub fn @"0x2F i32.load16_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !u32 {
-        return try ctx.load(u16, pop.data, mem.offset);
+        return try ctx.memory.load(u16, pop.data, mem.offset);
     }
 
     pub fn @"0x30 i64.load8_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(i8, pop.data, mem.offset);
+        return try ctx.memory.load(i8, pop.data, mem.offset);
     }
     pub fn @"0x31 i64.load8_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(u8, pop.data, mem.offset);
+        return try ctx.memory.load(u8, pop.data, mem.offset);
     }
     pub fn @"0x32 i64.load16_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(i16, pop.data, mem.offset);
+        return try ctx.memory.load(i16, pop.data, mem.offset);
     }
     pub fn @"0x33 i64.load16_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(u16, pop.data, mem.offset);
+        return try ctx.memory.load(u16, pop.data, mem.offset);
     }
     pub fn @"0x34 i64.load32_s"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(i32, pop.data, mem.offset);
+        return try ctx.memory.load(i32, pop.data, mem.offset);
     }
     pub fn @"0x35 i64.load32_u"(ctx: *Execution, mem: Arg.Mem, pop: *U32) !i64 {
-        return try ctx.load(u32, pop.data, mem.offset);
+        return try ctx.memory.load(u32, pop.data, mem.offset);
     }
     pub fn @"0x36 i32.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        return try ctx.store(i32, pop._0.data, mem.offset, pop._1.data);
+        return try ctx.memory.store(i32, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x37 i64.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        return try ctx.store(i64, pop._0.data, mem.offset, pop._1.data);
+        return try ctx.memory.store(i64, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x38 f32.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, F32)) !void {
-        return try ctx.store(f32, pop._0.data, mem.offset, pop._1.data);
+        return try ctx.memory.store(f32, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x39 f64.store"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, F64)) !void {
-        return try ctx.store(f64, pop._0.data, mem.offset, pop._1.data);
+        return try ctx.memory.store(f64, pop._0.data, mem.offset, pop._1.data);
     }
     pub fn @"0x3A i32.store8"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        return try ctx.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
+        return try ctx.memory.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
     }
     pub fn @"0x3B i32.store16"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I32)) !void {
-        return try ctx.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
+        return try ctx.memory.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
     }
     pub fn @"0x3C i64.store8"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        return try ctx.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
+        return try ctx.memory.store(i8, pop._0.data, mem.offset, @truncate(i8, pop._1.data));
     }
     pub fn @"0x3D i64.store16"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        return try ctx.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
+        return try ctx.memory.store(i16, pop._0.data, mem.offset, @truncate(i16, pop._1.data));
     }
     pub fn @"0x3E i64.store32"(ctx: *Execution, mem: Arg.Mem, pop: *Pair(U32, I64)) !void {
-        return try ctx.store(i32, pop._0.data, mem.offset, @truncate(i32, pop._1.data));
+        return try ctx.memory.store(i32, pop._0.data, mem.offset, @truncate(i32, pop._1.data));
     }
     pub fn @"0x3F memory.size"(ctx: *Execution, arg: Void, pop: *Void) u32 {
-        return @intCast(u32, ctx.memory.len / 65536);
+        return @intCast(u32, ctx.memory.data.len / 65536);
     }
 
     pub fn @"0x40 memory.grow"(ctx: *Execution, arg: Void, pop: *U32) i32 {
-        const page_overflow = 65536; // 65536 * 65536 = 4294967296 -> beyond addressable
-        const current = ctx.memory.len / 65536;
-        if (current + pop.data > page_overflow) {
-            return -1;
-        }
-        ctx.memory = ctx.allocator.realloc(ctx.memory, current + pop.data) catch |err| switch (err) {
-            error.OutOfMemory => return -1,
+        return ctx.memory.grow(@intCast(u16, pop.data)) catch |err| switch (err) {
+            error.OutOfMemory => -1,
         };
-        return @intCast(i32, current);
     }
     pub fn @"0x41 i32.const"(ctx: *Execution, arg: I32, pop: *Void) i32 {
         return arg.data;

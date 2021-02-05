@@ -2,12 +2,13 @@ const std = @import("std");
 const Op = @import("op.zig");
 const Module = @import("module.zig");
 const Instance = @import("instance.zig");
+const Memory = @import("Memory.zig");
 const util = @import("util.zig");
 
 const Execution = @This();
 
 context: ?*c_void,
-memory: []u8,
+memory: *Memory,
 funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
 jumps: Module.InstrJumps,
@@ -19,7 +20,7 @@ current_frame: Frame = Frame.terminus(),
 pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var ctx = Execution{
         .context = instance.context,
-        .memory = instance.memory,
+        .memory = &instance.memory,
         .funcs = instance.funcs,
         .allocator = instance.allocator,
         .jumps = instance.module.jumps,
@@ -27,9 +28,6 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         .stack = stack,
         .stack_top = 0,
     };
-    // Execution may have grown the memory, so we need to copy the new memory in
-    // TODO: rearchitect so this copying is unnecessary
-    defer instance.memory = ctx.memory;
 
     // initCall assumes the params are already pushed onto the stack
     for (params) |param| {
@@ -104,29 +102,6 @@ pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
 
 pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
     @panic("TODO");
-}
-
-// TODO: move these memory methods?
-pub fn load(self: Execution, comptime T: type, start: usize, offset: usize) !T {
-    const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
-    const raw = std.mem.readIntLittle(Int, try self.memGet(start, offset, @sizeOf(T)));
-    return @bitCast(T, raw);
-}
-
-pub fn store(self: Execution, comptime T: type, start: usize, offset: usize, value: T) !void {
-    const bytes = try self.memGet(start, offset, @sizeOf(T));
-    const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
-    std.mem.writeIntLittle(Int, bytes, @bitCast(Int, value));
-}
-
-fn memGet(self: Execution, start: usize, offset: usize, comptime length: usize) !*[length]u8 {
-    const tail = start +% offset +% (length - 1);
-    const is_overflow = tail < start;
-    const is_seg_fault = tail >= self.memory.len;
-    if (is_overflow or is_seg_fault) {
-        return error.OutOfBounds;
-    }
-    return self.memory[start + offset ..][0..length];
 }
 
 pub fn initCall(self: *Execution, func_id: usize) !void {
