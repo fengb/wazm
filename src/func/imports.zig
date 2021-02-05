@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Wat = @import("../wat.zig");
 const Instance = @import("../instance.zig");
-const Execution = @import("../execution.zig");
+const Memory = @import("../Memory.zig");
 
 test "import" {
     var fbs = std.io.fixedBufferStream(
@@ -16,7 +16,7 @@ test "import" {
 
     var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
-            pub fn thing(exec: *Execution, arg: i32) i32 {
+            pub fn thing(mem: *Memory, arg: i32) i32 {
                 return arg + 1;
             }
         };
@@ -47,11 +47,11 @@ test "import multiple" {
 
     var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
-            pub fn add(exec: *Execution, arg0: i32, arg1: i32) i32 {
+            pub fn add(mem: *Memory, arg0: i32, arg1: i32) i32 {
                 return arg0 + arg1;
             }
 
-            pub fn mul(exec: *Execution, arg0: i32, arg1: i32) i32 {
+            pub fn mul(mem: *Memory, arg0: i32, arg1: i32) i32 {
                 return arg0 * arg1;
             }
         };

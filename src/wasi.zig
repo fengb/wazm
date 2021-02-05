@@ -1,7 +1,7 @@
 const std = @import("std");
 const Module = @import("module.zig");
 const Instance = @import("instance.zig");
-const Execution = @import("execution.zig");
+const Memory = @import("Memory.zig");
 
 const Wasi = @This();
 
@@ -170,32 +170,32 @@ pub fn P(comptime T: type) type {
 }
 
 const imports = struct {
-    pub fn args_get(exec: *Execution, argv: P(P(u8)), argv_buf: P(u8)) !Errno {
-        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-        return strings_get(exec, wasi.argv, argv, argv_buf);
+    pub fn args_get(mem: *Memory, argv: P(P(u8)), argv_buf: P(u8)) !Errno {
+        const wasi = mem.ext(Wasi);
+        return strings_get(mem, wasi.argv, argv, argv_buf);
     }
 
-    pub fn args_sizes_get(exec: *Execution, argc: P(Size), argv_buf_size: P(Size)) !Errno {
-        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-        return strings_sizes_get(exec, wasi.argv, argc, argv_buf_size);
+    pub fn args_sizes_get(mem: *Memory, argc: P(Size), argv_buf_size: P(Size)) !Errno {
+        const wasi = mem.ext(Wasi);
+        return strings_sizes_get(mem, wasi.argv, argc, argv_buf_size);
     }
 
-    pub fn environ_get(exec: *Execution, environ: P(P(u8)), environ_buf: P(u8)) !Errno {
-        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-        return strings_get(exec, wasi.environ, environ, environ_buf);
+    pub fn environ_get(mem: *Memory, environ: P(P(u8)), environ_buf: P(u8)) !Errno {
+        const wasi = mem.ext(Wasi);
+        return strings_get(mem, wasi.environ, environ, environ_buf);
     }
 
-    pub fn environ_sizes_get(exec: *Execution, environc: P(Size), environ_buf_size: P(Size)) !Errno {
-        const wasi = @ptrCast(*Wasi, @alignCast(@alignOf(Wasi), exec.context));
-        return strings_sizes_get(exec, wasi.environ, environc, environ_buf_size);
+    pub fn environ_sizes_get(mem: *Memory, environc: P(Size), environ_buf_size: P(Size)) !Errno {
+        const wasi = mem.ext(Wasi);
+        return strings_sizes_get(mem, wasi.environ, environc, environ_buf_size);
     }
 
-    pub fn fd_write(exec: *Execution, fd: Fd, iovs: P(Iovec), iovs_len: Size, nread: P(Size)) !Errno {
+    pub fn fd_write(mem: *Memory, fd: Fd, iovs: P(Iovec), iovs_len: Size, nread: P(Size)) !Errno {
         var os_vec: [128]std.os.iovec_const = undefined;
         var i: u32 = 0;
         while (i < iovs_len) : (i += 1) {
-            const iov = try iovs.getOffset(exec.memory.data, i);
-            const slice = try iov.buf.getMany(exec.memory.data, iov.len);
+            const iov = try iovs.getOffset(mem.data, i);
+            const slice = try iov.buf.getMany(mem.data, iov.len);
             os_vec[i] = .{ .iov_base = slice.ptr, .iov_len = slice.len };
         }
 
@@ -218,37 +218,37 @@ const imports = struct {
             error.WouldBlock => Errno.again,
             error.Unexpected => Errno.unexpected,
         };
-        try nread.set(exec.memory.data, @intCast(u32, written));
+        try nread.set(mem.data, @intCast(u32, written));
         return Errno.success;
     }
 
-    fn strings_get(exec: *Execution, strings: [][]u8, target: P(P(u8)), target_buf: P(u8)) !Errno {
+    fn strings_get(mem: *Memory, strings: [][]u8, target: P(P(u8)), target_buf: P(u8)) !Errno {
         var target_ = target;
         var target_buf_ = target_buf;
 
         for (strings) |string| {
-            try target_.set(exec.memory.data, target_buf_);
+            try target_.set(mem.data, target_buf_);
 
-            try target_buf_.setMany(exec.memory.data, string);
+            try target_buf_.setMany(mem.data, string);
             target_buf_.value += @intCast(u32, string.len);
-            try target_buf_.set(exec.memory.data, 0);
+            try target_buf_.set(mem.data, 0);
             target_buf_.value += 1;
         }
         return Errno.success;
     }
 
-    fn strings_sizes_get(exec: *Execution, strings: [][]u8, targetc: P(Size), target_buf_size: P(Size)) !Errno {
-        try targetc.set(exec.memory.data, @intCast(Size, strings.len));
+    fn strings_sizes_get(mem: *Memory, strings: [][]u8, targetc: P(Size), target_buf_size: P(Size)) !Errno {
+        try targetc.set(mem.data, @intCast(Size, strings.len));
 
         var buf_size: usize = 0;
         for (strings) |string| {
             buf_size += string.len + 1;
         }
-        try target_buf_size.set(exec.memory.data, @intCast(Size, buf_size));
+        try target_buf_size.set(mem.data, @intCast(Size, buf_size));
         return Errno.success;
     }
 
-    pub fn clock_res_get(exec: *Execution, clock_id: ClockId, resolution: P(Timestamp)) Errno {
+    pub fn clock_res_get(mem: *Memory, clock_id: ClockId, resolution: P(Timestamp)) Errno {
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -262,11 +262,11 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try resolution.set(exec.memory.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try resolution.set(mem.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 
-    pub fn clock_time_get(exec: *Execution, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) Errno {
+    pub fn clock_time_get(mem: *Memory, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) Errno {
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -280,7 +280,7 @@ const imports = struct {
             error.UnsupportedClock => return Errno.inval,
             error.Unexpected => return Errno.unexpected,
         };
-        try time.set(exec.memory.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
+        try time.set(mem.data, @intCast(Timestamp, std.time.ns_per_s * result.tv_sec + result.tv_nsec));
         return Errno.success;
     }
 };

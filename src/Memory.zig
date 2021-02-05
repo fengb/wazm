@@ -4,11 +4,12 @@ const Memory = @This();
 
 allocator: *std.mem.Allocator,
 data: []u8,
+context: ?*c_void,
 
 const page_size = 65536;
 
-pub fn init(allocator: *std.mem.Allocator, initial_pages: u16) !Memory {
-    var result = Memory{ .allocator = allocator, .data = &.{} };
+pub fn init(allocator: *std.mem.Allocator, context: ?*c_void, initial_pages: u16) !Memory {
+    var result = Memory{ .allocator = allocator, .data = &.{}, .context = context };
     _ = try result.grow(initial_pages);
     return result;
 }
@@ -16,6 +17,10 @@ pub fn init(allocator: *std.mem.Allocator, initial_pages: u16) !Memory {
 pub fn deinit(self: *Memory) void {
     self.allocator.free(self.data);
     self.* = undefined;
+}
+
+pub fn ext(self: Memory, comptime T: type) *T {
+    return @ptrCast(*T, @alignCast(@alignOf(T), self.context));
 }
 
 pub fn grow(self: *Memory, additional_pages: u16) !u16 {

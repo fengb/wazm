@@ -9,7 +9,6 @@ const Instance = @This();
 
 module: *const Module,
 allocator: *std.mem.Allocator,
-context: ?*c_void,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
@@ -71,11 +70,10 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
     return Instance{
         .module = module,
         .mutex = .{},
-        .memory = try Memory.init(allocator, 1),
+        .memory = try Memory.init(allocator, context, 1),
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
         .allocator = allocator,
-        .context = context,
     };
 }
 
@@ -189,7 +187,7 @@ pub fn ImportManager(comptime Imports: type) type {
 
                 pub fn shimmed(ctx: *Execution, params: []const Op.Fixval) Op.WasmTrap!?Op.Fixval {
                     var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
-                    args[0] = ctx;
+                    args[0] = ctx.memory;
                     inline for (std.meta.fields(@TypeOf(args))) |f, i| {
                         if (i == 0) continue;
 
