@@ -54,10 +54,9 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
             const instr = func.kind.instrs[ctx.current_frame.instr];
             ctx.current_frame.instr += 1;
 
-            ctx.stack_top -= instr.pop_len;
-            const pop_array: [*]Op.Fixval = ctx.stack.ptr + ctx.stack_top;
+            const pops = ctx.popN(instr.pop_len);
 
-            const result = try Op.step(instr.op, &ctx, instr.arg, pop_array);
+            const result = try Op.step(instr.op, &ctx, instr.arg, pops.ptr);
             if (result) |res| {
                 try ctx.push(@TypeOf(res), res);
             }
@@ -129,7 +128,7 @@ pub fn unwindCall(self: *Execution) ?Op.Fixval {
     self.stack_top = self.current_frame.stack_begin;
 
     self.current_frame = self.pop(Frame);
-    self.dropN(func.params.len + func.locals.len);
+    _ = self.popN(func.params.len + func.locals.len);
 
     return result;
 }
@@ -150,17 +149,12 @@ pub fn jump(self: *Execution, table_idx: ?u32) void {
     else
         null;
 
-    self.dropN(target.stack_unroll);
+    _ = self.popN(target.stack_unroll);
     self.current_frame.instr = target.addr;
 
     if (result) |value| {
         self.push(Op.Fixval, value) catch unreachable;
     }
-}
-
-pub fn dropN(self: *Execution, size: usize) void {
-    std.debug.assert(self.stack_top + size <= self.stack.len);
-    self.stack_top -= size;
 }
 
 pub fn peek(self: *Execution, comptime T: type) T {
@@ -172,6 +166,12 @@ pub fn pop(self: *Execution, comptime T: type) T {
     std.debug.assert(@sizeOf(T) == 16);
     self.stack_top -= 1;
     return @bitCast(T, self.stack[self.stack_top]);
+}
+
+pub fn popN(self: *Execution, size: usize) []Op.Fixval {
+    std.debug.assert(self.stack_top + size <= self.stack.len);
+    self.stack_top -= size;
+    return self.stack[self.stack_top..][0..size];
 }
 
 pub fn push(self: *Execution, comptime T: type, value: T) !void {
