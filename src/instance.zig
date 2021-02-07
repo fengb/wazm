@@ -12,6 +12,7 @@ allocator: *std.mem.Allocator,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
+globals: []Global,
 
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
@@ -67,12 +68,27 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         });
     }
 
+    var globals = try allocator.alloc(Global, module.global.len);
+
+    for (module.global) |global, i| {
+        globals[i] = .{
+            .is_mutable = global.@"type".mutability,
+            .value = switch (global.@"type".content_type) {
+                .I32 => Value{ .I32 = global.init.i32_const },
+                .I64 => Value{ .I64 = global.init.i64_const },
+                .F32 => Value{ .F32 = global.init.f32_const },
+                .F64 => Value{ .F64 = global.init.f64_const },
+            },
+        };
+    }
+
     return Instance{
         .module = module,
         .mutex = .{},
         .memory = try Memory.init(allocator, context, 1),
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
+        .globals = globals,
         .allocator = allocator,
     };
 }
@@ -147,6 +163,11 @@ pub const Export = union(enum) {
     Table: usize,
     Memory: usize,
     Global: usize,
+};
+
+pub const Global = struct {
+    is_mutable: bool,
+    value: Value,
 };
 
 pub fn ImportManager(comptime Imports: type) type {
