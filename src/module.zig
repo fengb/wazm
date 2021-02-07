@@ -179,7 +179,7 @@ pub const Instr = struct {
     arg: Op.Arg,
 };
 
-const InitExpr = union(enum) {
+pub const InitExpr = union(enum) {
     i32_const: i32,
     i64_const: i64,
     f32_const: f32,

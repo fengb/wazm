@@ -36,15 +36,15 @@ fn Sexpr(comptime Reader: type) type {
             ctx: *Self,
             stack_level: isize,
 
-            const Next = union { Atom: []const u8, List: List };
+            const Next = union(enum) { Atom: []const u8, List: List };
 
             pub fn next(self: List, buffer: []u8) !?Next {
-                if (!self.isAtEnd()) return null;
+                if (self.isAtEnd()) return null;
 
                 return switch (try self.ctx.scan()) {
-                    .OpenParen => Next{ .List = .{ .ctx = self.ctx } },
+                    .OpenParen => Next{ .List = .{ .ctx = self.ctx, .stack_level = self.ctx.current_stack } },
                     .CloseParen => null,
-                    .Atom => try self.loadIntoBuffer(buffer),
+                    .Atom => Next{ .Atom = try self.loadIntoBuffer(buffer) },
                 };
             }
 
@@ -546,6 +546,79 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     .return_type = result,
                 });
             },
+            swhash.case("global") => {
+                // 'skip' the id
+                var id_buf: [0x10]u8 = undefined;
+                const id = (try command.next(&id_buf)) orelse return error.ExpectedNext;
+
+                const next = blk: {
+                    // a comment was skipped so 'id' is the actual Atom/List we want
+                    if (id != .Atom or id.Atom[0] != '$') break :blk id;
+
+                    // if it was an id get next list/atom
+                    var next_buf: [0x20]u8 = undefined;
+                    break :blk (try command.next(&next_buf)) orelse return error.ExpectedNext;
+                };
+
+                const mutable = blk: {
+                    if (next == .Atom) break :blk false;
+
+                    var mut_buf: [0x10]u8 = undefined;
+                    const mut = try next.List.obtainAtom(&mut_buf);
+                    break :blk std.mem.eql(u8, mut, "mut");
+                };
+
+                const valtype = blk: {
+                    const type_atom = switch (next) {
+                        .List => |list| list_blk: {
+                            var type_buf: [0x10]u8 = undefined;
+                            const res = try list.obtainAtom(&type_buf);
+                            try list.expectEnd();
+                            break :list_blk res;
+                        },
+                        .Atom => |atom| atom,
+                    };
+                    break :blk @as(Module.Type.Value, switch (swhash.match(type_atom)) {
+                        swhash.case("i32") => .I32,
+                        swhash.case("i64") => .I64,
+                        swhash.case("f32") => .F32,
+                        swhash.case("f64") => .F64,
+                        else => return error.ExpectedType,
+                    });
+                };
+
+                const init_pair = try command.obtainList();
+                var init_type_buf: [0x10]u8 = undefined;
+                var op_string = try init_pair.obtainAtom(&init_type_buf);
+                for (op_string) |*letter| {
+                    if (letter.* == '.') {
+                        letter.* = '_';
+                    }
+                }
+
+                const op = std.meta.stringToEnum(std.wasm.Opcode, op_string) orelse return error.OpNotFound;
+
+                var val_buf: [0x10]u8 = undefined;
+                const value = try init_pair.obtainAtom(&val_buf);
+
+                const result: Module.InitExpr = switch (op) {
+                    .i32_const => .{ .i32_const = try std.fmt.parseInt(i32, value, 10) },
+                    .i64_const => .{ .i64_const = try std.fmt.parseInt(i64, value, 10) },
+                    .f32_const => .{ .f32_const = try std.fmt.parseFloat(f32, value) },
+                    .f64_const => .{ .f64_const = try std.fmt.parseFloat(f64, value) },
+                    else => return error.UnsupportedInitExpr,
+                };
+
+                try init_pair.expectEnd();
+
+                try globals.append(.{
+                    .@"type" = .{
+                        .content_type = valtype,
+                        .mutability = mutable,
+                    },
+                    .init = result,
+                });
+            },
             swhash.case("export") => {
                 var export_name_buf: [0x100]u8 = undefined;
                 const export_name = try command.obtainAtom(&export_name_buf);
@@ -684,6 +757,29 @@ test "parseNoValidate" {
         std.testing.expectEqual(@intToEnum(Module.Index.FuncType, 0), module.import[0].kind.Function);
 
         std.testing.expectEqual(@as(usize, 0), module.function.len);
+    }
+    {
+        var fbs = std.io.fixedBufferStream(
+            \\(module
+            \\  (global $x (mut i32) (i32.const -12))
+            \\  (global $x i64 (i64.const 12))
+            \\  (global (;1;) i32 (i32.const 10)))
+        );
+        var module = try parseNoValidate(std.testing.allocator, fbs.reader());
+        defer module.deinit();
+
+        std.testing.expectEqual(@as(usize, 3), module.global.len);
+        std.testing.expectEqual(Module.Type.Value.I32, module.global[0].@"type".content_type);
+        std.testing.expectEqual(true, module.global[0].@"type".mutability);
+        std.testing.expectEqual(@as(i32, -12), module.global[0].init.i32_const);
+
+        std.testing.expectEqual(Module.Type.Value.I64, module.global[1].@"type".content_type);
+        std.testing.expectEqual(false, module.global[1].@"type".mutability);
+        std.testing.expectEqual(@as(i64, 12), module.global[1].init.i64_const);
+
+        std.testing.expectEqual(Module.Type.Value.I32, module.global[2].@"type".content_type);
+        std.testing.expectEqual(false, module.global[2].@"type".mutability);
+        std.testing.expectEqual(@as(i32, 10), module.global[2].init.i32_const);
     }
 }
 
