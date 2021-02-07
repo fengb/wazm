@@ -2,25 +2,28 @@ const std = @import("std");
 
 const Memory = @This();
 
+pages: std.ArrayListUnmanaged(*[65536]u8),
 allocator: *std.mem.Allocator,
-data: []u8,
 context: ?*c_void,
 
 const page_size = 65536;
 
 pub fn init(allocator: *std.mem.Allocator, context: ?*c_void, initial_pages: u16) !Memory {
-    var result = Memory{ .allocator = allocator, .data = &.{}, .context = context };
+    var result = Memory{ .allocator = allocator, .pages = .{}, .context = context };
     _ = try result.grow(initial_pages);
     return result;
 }
 
 pub fn deinit(self: *Memory) void {
-    self.allocator.free(self.data);
+    for (self.pages.items) |page| {
+        self.allocator.destroy(page);
+    }
+    self.pages.deinit(self.allocator);
     self.* = undefined;
 }
 
-pub fn pages(self: Memory) u16 {
-    return @intCast(u16, self.data.len / 65536);
+pub fn pageCount(self: Memory) u16 {
+    return @intCast(u16, self.pages.items.len);
 }
 
 pub fn ext(self: Memory, comptime T: type) *T {
@@ -28,12 +31,17 @@ pub fn ext(self: Memory, comptime T: type) *T {
 }
 
 pub fn grow(self: *Memory, additional_pages: u16) !void {
-    const existing_pages = self.data.len / page_size;
-    const new_pages = existing_pages + additional_pages;
-    if (new_pages > 65536) {
+    const new_page_count = self.pageCount() + additional_pages;
+    if (new_page_count > 65536) {
         return error.OutOfMemory;
     }
-    self.data = try self.allocator.realloc(self.data, new_pages * page_size);
+    try self.pages.ensureCapacity(self.allocator, new_page_count);
+
+    var i: u16 = 0;
+    while (i < additional_pages) : (i += 1) {
+        const page = try self.allocator.alloc(u8, page_size);
+        self.pages.appendAssumeCapacity(@ptrCast(*[page_size]u8, page.ptr));
+    }
 }
 
 pub fn load(self: Memory, comptime T: type, start: u32, offset: u32) !T {
@@ -51,11 +59,15 @@ pub fn store(self: Memory, comptime T: type, start: u32, offset: u32, value: T) 
 }
 
 fn chunk(self: Memory, idx: u32, comptime size: u32) !*[size]u8 {
-    const end = try std.math.add(u32, idx, size - 1);
-    if (end >= self.data.len) {
+    const page_num = idx / page_size;
+    const offset = idx % page_size;
+    const end = offset + size;
+    if (page_num >= self.pageCount() or end >= page_size) {
+        // TODO: handle split byte boundary
         return error.OutOfBounds;
     }
-    return self.data[idx..][0..size];
+    const page = self.pages.items[page_num];
+    return page[offset..][0..size];
 }
 
 pub fn get(self: Memory, ptr: anytype) !@TypeOf(ptr).Pointee {
@@ -63,7 +75,8 @@ pub fn get(self: Memory, ptr: anytype) !@TypeOf(ptr).Pointee {
 }
 
 pub fn getMany(self: Memory, ptr: anytype, size: u32) ![]u8 {
-    return self.data[ptr.addr..][0..size];
+    @panic("TODO");
+    //return self.data[ptr.addr..][0..size];
 }
 
 pub fn set(self: Memory, ptr: anytype, value: @TypeOf(ptr).Pointee) !void {
@@ -96,17 +109,17 @@ test "grow" {
     var mem = try Memory.init(std.testing.allocator, null, 1);
     defer mem.deinit();
 
-    std.testing.expectEqual(@as(u16, 1), mem.pages());
+    std.testing.expectEqual(@as(u16, 1), mem.pageCount());
 
     try mem.grow(1);
-    std.testing.expectEqual(@as(u16, 2), mem.pages());
+    std.testing.expectEqual(@as(u16, 2), mem.pageCount());
 }
 
 test "get/set" {
     var mem = try Memory.init(std.testing.allocator, null, 1);
     defer mem.deinit();
 
-    std.testing.expectEqual(@as(u16, 1), mem.pages());
+    std.testing.expectEqual(@as(u16, 1), mem.pageCount());
 
     const ptr1 = P(u32){ .addr = 1234 };
     const ptr2 = P(u32){ .addr = 4321 };

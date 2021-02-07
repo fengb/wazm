@@ -525,14 +525,14 @@ const Impl = struct {
         return try ctx.memory.store(i32, pop._0.data, mem.offset, @truncate(i32, pop._1.data));
     }
     pub fn @"0x3F memory.size"(ctx: *Execution, arg: Void, pop: *Void) u32 {
-        return @intCast(u32, ctx.memory.data.len / 65536);
+        return ctx.memory.pageCount();
     }
 
     pub fn @"0x40 memory.grow"(ctx: *Execution, arg: Void, pop: *U32) i32 {
         ctx.memory.grow(@intCast(u16, pop.data)) catch |err| switch (err) {
-            error.OutOfMemory => return -1,
+            error.OutOfMemory => return @as(i32, -1),
         };
-        return @as(i32, ctx.memory.pages());
+        return ctx.memory.pageCount();
     }
     pub fn @"0x41 i32.const"(ctx: *Execution, arg: I32, pop: *Void) i32 {
         return arg.data;
