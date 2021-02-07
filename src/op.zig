@@ -529,9 +529,10 @@ const Impl = struct {
     }
 
     pub fn @"0x40 memory.grow"(ctx: *Execution, arg: Void, pop: *U32) i32 {
-        return ctx.memory.grow(@intCast(u16, pop.data)) catch |err| switch (err) {
-            error.OutOfMemory => -1,
+        ctx.memory.grow(@intCast(u16, pop.data)) catch |err| switch (err) {
+            error.OutOfMemory => return -1,
         };
+        return @as(i32, ctx.memory.pages());
     }
     pub fn @"0x41 i32.const"(ctx: *Execution, arg: I32, pop: *Void) i32 {
         return arg.data;

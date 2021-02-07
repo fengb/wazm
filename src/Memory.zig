@@ -19,18 +19,21 @@ pub fn deinit(self: *Memory) void {
     self.* = undefined;
 }
 
+pub fn pages(self: Memory) u16 {
+    return @intCast(u16, self.data.len / 65536);
+}
+
 pub fn ext(self: Memory, comptime T: type) *T {
     return @ptrCast(*T, @alignCast(@alignOf(T), self.context));
 }
 
-pub fn grow(self: *Memory, additional_pages: u16) !u16 {
+pub fn grow(self: *Memory, additional_pages: u16) !void {
     const existing_pages = self.data.len / page_size;
-    const new_size = existing_pages + additional_pages;
-    if (new_size > 65536) {
+    const new_pages = existing_pages + additional_pages;
+    if (new_pages > 65536) {
         return error.OutOfMemory;
     }
-    self.data = try self.allocator.realloc(self.data, existing_pages + additional_pages);
-    return @intCast(u16, new_size);
+    self.data = try self.allocator.realloc(self.data, new_pages * page_size);
 }
 
 pub fn load(self: Memory, comptime T: type, start: u32, offset: u32) !T {
@@ -87,4 +90,29 @@ pub fn P(comptime T: type) type {
             return @This(){ .addr = try std.math.add(u32, self.addr, change) };
         }
     };
+}
+
+test "grow" {
+    var mem = try Memory.init(std.testing.allocator, null, 1);
+    defer mem.deinit();
+
+    std.testing.expectEqual(@as(u16, 1), mem.pages());
+
+    try mem.grow(1);
+    std.testing.expectEqual(@as(u16, 2), mem.pages());
+}
+
+test "get/set" {
+    var mem = try Memory.init(std.testing.allocator, null, 1);
+    defer mem.deinit();
+
+    std.testing.expectEqual(@as(u16, 1), mem.pages());
+
+    const ptr1 = P(u32){ .addr = 1234 };
+    const ptr2 = P(u32){ .addr = 4321 };
+    try mem.set(ptr1, 69);
+    try mem.set(ptr2, 420);
+
+    std.testing.expectEqual(@as(u32, 69), try mem.get(ptr1));
+    std.testing.expectEqual(@as(u32, 420), try mem.get(ptr2));
 }
