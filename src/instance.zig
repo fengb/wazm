@@ -12,7 +12,7 @@ allocator: *std.mem.Allocator,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
-globals: []Global,
+globals: []Value,
 
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
@@ -68,17 +68,14 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         });
     }
 
-    var globals = try allocator.alloc(Global, module.global.len);
+    var globals = try allocator.alloc(Value, module.global.len);
 
     for (module.global) |global, i| {
-        globals[i] = .{
-            .is_mutable = global.@"type".mutability,
-            .value = switch (global.@"type".content_type) {
-                .I32 => Value{ .I32 = global.init.i32_const },
-                .I64 => Value{ .I64 = global.init.i64_const },
-                .F32 => Value{ .F32 = global.init.f32_const },
-                .F64 => Value{ .F64 = global.init.f64_const },
-            },
+        globals[i] = switch (global.@"type".content_type) {
+            .I32 => Value{ .I32 = global.init.i32_const },
+            .I64 => Value{ .I64 = global.init.i64_const },
+            .F32 => Value{ .F32 = global.init.f32_const },
+            .F64 => Value{ .F64 = global.init.f64_const },
         };
     }
 
@@ -163,11 +160,6 @@ pub const Export = union(enum) {
     Table: usize,
     Memory: usize,
     Global: usize,
-};
-
-pub const Global = struct {
-    is_mutable: bool,
-    value: Value,
 };
 
 pub fn ImportManager(comptime Imports: type) type {

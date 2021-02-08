@@ -263,6 +263,16 @@ const StackValidator = struct {
                     try self.types.checkPops(instr_idx, &.{typ});
                     self.types.pushAt(instr_idx, typ);
                 },
+                .global_set => {
+                    const idx = instr.arg.U32;
+                    if (idx >= module.global.len) return error.GlobalIndexOutOfBounds;
+                    try self.types.checkPops(instr_idx, &.{module.global[idx].@"type".content_type});
+                },
+                .global_get => {
+                    const idx = instr.arg.U32;
+                    if (idx >= module.global.len) return error.GlobalIndexOutOfBounds;
+                    self.types.pushAt(instr_idx, module.global[idx].@"type".content_type);
+                },
 
                 .select => {
                     try self.types.checkPops(instr_idx, &.{.I32});
@@ -438,4 +448,17 @@ test "if/else locations" {
     const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
     std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
     std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
+}
+
+test "invalid global idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (global $x i32 (i32.const -5))
+        \\  (func (result i32)
+        \\  global.get 1))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    const ExpectedError = error{GlobalIndexOutOfBounds};
+    std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
 }
