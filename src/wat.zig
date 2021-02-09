@@ -551,12 +551,12 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 var id_buf: [0x10]u8 = undefined;
                 const id = (try command.next(&id_buf)) orelse return error.ExpectedNext;
 
+                var next_buf: [0x20]u8 = undefined;
                 const next = blk: {
                     // a comment was skipped so 'id' is the actual Atom/List we want
                     if (id != .Atom or id.Atom[0] != '$') break :blk id;
 
                     // if it was an id get next list/atom
-                    var next_buf: [0x20]u8 = undefined;
                     break :blk (try command.next(&next_buf)) orelse return error.ExpectedNext;
                 };
 
