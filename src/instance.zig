@@ -92,6 +92,7 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
 
 pub fn deinit(self: *Instance) void {
     self.allocator.free(self.funcs);
+    self.allocator.free(self.globals);
     self.memory.deinit();
     self.exports.deinit();
     self.* = undefined;

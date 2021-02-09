@@ -11,7 +11,7 @@ memory: *Memory,
 funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
 jumps: Module.InstrJumps,
-globals: []Op.Fixval,
+instance: *const Instance,
 
 stack: []Op.Fixval,
 stack_top: usize,
@@ -23,7 +23,7 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         .funcs = instance.funcs,
         .allocator = instance.allocator,
         .jumps = instance.module.jumps,
-        .globals = try instance.allocator.alloc(Op.Fixval, instance.globals.len),
+        .instance = instance,
 
         .stack = stack,
         .stack_top = 0,
@@ -32,28 +32,6 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
     // initCall assumes the params are already pushed onto the stack
     for (params) |param| {
         try ctx.push(Op.Fixval, param);
-    }
-
-    // set globals and afterwards copy globals back into instance
-    for (ctx.globals) |*global, i| {
-        global.* = switch (instance.globals[i]) {
-            .I32 => |val| .{ .I32 = val },
-            .I64 => |val| .{ .I64 = val },
-            .F32 => |val| .{ .F32 = val },
-            .F64 => |val| .{ .F64 = val },
-        };
-    }
-    defer {
-        for (instance.globals) |*global, i| {
-            const cur = ctx.globals[i];
-            global.* = switch (global.*) {
-                .I32 => .{ .I32 = cur.I32 },
-                .I64 => .{ .I64 = cur.I64 },
-                .F32 => .{ .F32 = cur.F32 },
-                .F64 => .{ .F64 = cur.F64 },
-            };
-        }
-        ctx.allocator.free(ctx.globals);
     }
 
     try ctx.initCall(func_id);
@@ -118,11 +96,21 @@ fn localOffset(self: Execution) usize {
 }
 
 pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
-    return self.globals[idx];
+    return switch (self.instance.globals[idx]) {
+        .I32 => |val| .{ .I32 = val },
+        .I64 => |val| .{ .I64 = val },
+        .F32 => |val| .{ .F32 = val },
+        .F64 => |val| .{ .F64 = val },
+    };
 }
 
 pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
-    self.globals[idx] = value;
+    switch (self.instance.globals[idx]) {
+        .I32 => |*val| val.* = value.I32,
+        .I64 => |*val| val.* = value.I64,
+        .F32 => |*val| val.* = value.F32,
+        .F64 => |*val| val.* = value.F64,
+    }
 }
 
 pub fn initCall(self: *Execution, func_id: usize) !void {

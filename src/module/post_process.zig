@@ -256,10 +256,10 @@ const StackValidator = struct {
                     }
                 },
 
-                .local_set => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, code.locals)}),
-                .local_get => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, code.locals)),
+                .local_set => try self.types.checkPops(instr_idx, &.{try localType(instr.arg.U32, func_type.param_types, code.locals)}),
+                .local_get => self.types.pushAt(instr_idx, try localType(instr.arg.U32, func_type.param_types, code.locals)),
                 .local_tee => {
-                    const typ = localType(instr.arg.U32, func_type.param_types, code.locals);
+                    const typ = try localType(instr.arg.U32, func_type.param_types, code.locals);
                     try self.types.checkPops(instr_idx, &.{typ});
                     self.types.pushAt(instr_idx, typ);
                 },
@@ -327,7 +327,8 @@ const StackValidator = struct {
         };
     }
 
-    fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) Module.Type.Value {
+    fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) !Module.Type.Value {
+        if (local_idx >= params.len + locals.len) return error.LocalIndexOutOfBounds;
         if (local_idx < params.len) {
             return params[local_idx];
         } else {
@@ -459,6 +460,39 @@ test "invalid global idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    const ExpectedError = error{GlobalIndexOutOfBounds};
     std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
+}
+
+test "valid global idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (global $x i32 (i32.const -5))
+        \\  (func (result i32)
+        \\  global.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    try module.post_process();
+}
+
+test "invalid local idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\  local.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    std.testing.expectError(error.LocalIndexOutOfBounds, module.post_process());
+}
+
+test "valid local idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (param i32) (result i32)
+        \\  local.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    try module.post_process();
 }
