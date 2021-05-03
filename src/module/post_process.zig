@@ -256,12 +256,22 @@ const StackValidator = struct {
                     }
                 },
 
-                .local_set => try self.types.checkPops(instr_idx, &.{localType(instr.arg.U32, func_type.param_types, code.locals)}),
-                .local_get => self.types.pushAt(instr_idx, localType(instr.arg.U32, func_type.param_types, code.locals)),
+                .local_set => try self.types.checkPops(instr_idx, &.{try localType(instr.arg.U32, func_type.param_types, code.locals)}),
+                .local_get => self.types.pushAt(instr_idx, try localType(instr.arg.U32, func_type.param_types, code.locals)),
                 .local_tee => {
-                    const typ = localType(instr.arg.U32, func_type.param_types, code.locals);
+                    const typ = try localType(instr.arg.U32, func_type.param_types, code.locals);
                     try self.types.checkPops(instr_idx, &.{typ});
                     self.types.pushAt(instr_idx, typ);
+                },
+                .global_set => {
+                    const idx = instr.arg.U32;
+                    if (idx >= module.global.len) return error.GlobalIndexOutOfBounds;
+                    try self.types.checkPops(instr_idx, &.{module.global[idx].@"type".content_type});
+                },
+                .global_get => {
+                    const idx = instr.arg.U32;
+                    if (idx >= module.global.len) return error.GlobalIndexOutOfBounds;
+                    self.types.pushAt(instr_idx, module.global[idx].@"type".content_type);
                 },
 
                 .select => {
@@ -317,7 +327,8 @@ const StackValidator = struct {
         };
     }
 
-    fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) Module.Type.Value {
+    fn localType(local_idx: u32, params: []const Module.Type.Value, locals: []const Module.Type.Value) !Module.Type.Value {
+        if (local_idx >= params.len + locals.len) return error.LocalIndexOutOfBounds;
         if (local_idx < params.len) {
             return params[local_idx];
         } else {
@@ -438,4 +449,50 @@ test "if/else locations" {
     const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
     std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
     std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
+}
+
+test "invalid global idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (global $x i32 (i32.const -5))
+        \\  (func (result i32)
+        \\  global.get 1))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
+}
+
+test "valid global idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (global $x i32 (i32.const -5))
+        \\  (func (result i32)
+        \\  global.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    try module.post_process();
+}
+
+test "invalid local idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\  local.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    std.testing.expectError(error.LocalIndexOutOfBounds, module.post_process());
+}
+
+test "valid local idx" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (param i32) (result i32)
+        \\  local.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    try module.post_process();
 }

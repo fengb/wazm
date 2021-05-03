@@ -11,6 +11,7 @@ memory: *Memory,
 funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
 jumps: Module.InstrJumps,
+instance: *const Instance,
 
 stack: []Op.Fixval,
 stack_top: usize,
@@ -22,6 +23,7 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         .funcs = instance.funcs,
         .allocator = instance.allocator,
         .jumps = instance.module.jumps,
+        .instance = instance,
 
         .stack = stack,
         .stack_top = 0,
@@ -94,11 +96,21 @@ fn localOffset(self: Execution) usize {
 }
 
 pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
-    @panic("TODO");
+    return switch (self.instance.globals[idx]) {
+        .I32 => |val| .{ .I32 = val },
+        .I64 => |val| .{ .I64 = val },
+        .F32 => |val| .{ .F32 = val },
+        .F64 => |val| .{ .F64 = val },
+    };
 }
 
 pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
-    @panic("TODO");
+    switch (self.instance.globals[idx]) {
+        .I32 => |*val| val.* = value.I32,
+        .I64 => |*val| val.* = value.I64,
+        .F32 => |*val| val.* = value.F32,
+        .F64 => |*val| val.* = value.F64,
+    }
 }
 
 pub fn initCall(self: *Execution, func_id: usize) !void {

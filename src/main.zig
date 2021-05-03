@@ -32,4 +32,5 @@ test "" {
     _ = @import("func/basic.zig");
     _ = @import("func/imports.zig");
     _ = @import("func/logic.zig");
+    _ = @import("func/global.zig");
 }

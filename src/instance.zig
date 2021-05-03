@@ -12,6 +12,7 @@ allocator: *std.mem.Allocator,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
+globals: []Value,
 
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
@@ -67,18 +68,31 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         });
     }
 
+    var globals = try allocator.alloc(Value, module.global.len);
+
+    for (module.global) |global, i| {
+        globals[i] = switch (global.@"type".content_type) {
+            .I32 => Value{ .I32 = global.init.i32_const },
+            .I64 => Value{ .I64 = global.init.i64_const },
+            .F32 => Value{ .F32 = global.init.f32_const },
+            .F64 => Value{ .F64 = global.init.f64_const },
+        };
+    }
+
     return Instance{
         .module = module,
         .mutex = .{},
         .memory = try Memory.init(allocator, context, 1),
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
+        .globals = globals,
         .allocator = allocator,
     };
 }
 
 pub fn deinit(self: *Instance) void {
     self.allocator.free(self.funcs);
+    self.allocator.free(self.globals);
     self.memory.deinit();
     self.exports.deinit();
     self.* = undefined;
