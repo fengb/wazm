@@ -73,6 +73,15 @@ pub const Errno = enum(u32) {
     /// Bad file descriptor.
     badf = 8,
 
+    /// Connection aborted.
+    connaborted = 13,
+
+    /// Connection refused.
+    connrefused = 14,
+
+    /// Connection reset.
+    connreset = 15,
+
     /// Reserved.
     dquot = 19,
 
@@ -180,6 +189,7 @@ const imports = struct {
             error.OperationAborted => unreachable,
             error.NotOpenForWriting => Errno.badf,
             error.WouldBlock => Errno.again,
+            error.ConnectionResetByPeer => Errno.connreset,
             error.Unexpected => Errno.unexpected,
         };
         try mem.set(nread, @intCast(u32, written));
