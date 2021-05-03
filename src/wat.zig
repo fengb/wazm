@@ -393,19 +393,19 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 }
             },
             swhash.case("import") => {
-                const module = try command.obtainAtom(&ring.allocator);
+                const module = try command.obtainAtom(&arena.allocator);
                 if (module[0] != '"') {
                     return error.ExpectString;
                 }
 
-                const field = try command.obtainAtom(&ring.allocator);
+                const field = try command.obtainAtom(&arena.allocator);
                 if (field[0] != '"') {
                     return error.ExpectString;
                 }
 
                 var result = Module.Section(.import){
-                    .module = try arena.allocator.dupe(u8, module[1 .. module.len - 1]),
-                    .field = try arena.allocator.dupe(u8, field[1 .. field.len - 1]),
+                    .module = module[1 .. module.len - 1],
+                    .field = field[1 .. field.len - 1],
                     .kind = undefined,
                 };
 
@@ -600,7 +600,7 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 });
             },
             swhash.case("export") => {
-                const export_name = try command.obtainAtom(&ring.allocator);
+                const export_name = try command.obtainAtom(&arena.allocator);
                 if (export_name[0] != '"') {
                     return error.ExpectString;
                 }
@@ -612,7 +612,7 @@ pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const index = try pair.obtainAtom(&ring.allocator);
 
                 try exports.append(.{
-                    .field = try arena.allocator.dupe(u8, export_name[1 .. export_name.len - 1]),
+                    .field = export_name[1 .. export_name.len - 1],
                     .kind = switch (swhash.match(kind)) {
                         swhash.case("func") => .Function,
                         swhash.case("table") => .Table,
