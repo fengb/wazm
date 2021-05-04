@@ -257,52 +257,6 @@ fn expectEos(reader: anytype) !void {
     }
 }
 
-/// A stream that can only read a maximum number of bytes.
-pub fn ClampedReader(comptime ReaderType: type) type {
-    return struct {
-        const Self = @This();
-        pub const Error = ReaderType.Error;
-        pub const Reader = std.io.Reader(*Self, Error, read);
-
-        underlying_stream: ReaderType,
-
-        size: usize,
-        remaining: usize,
-
-        pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        fn read(self: *Self, dest: []u8) Error!usize {
-            const bytes = try self.underlying_stream.read(dest[0..std.math.min(dest.len, self.remaining)]);
-            self.remaining -= bytes;
-            return bytes;
-        }
-    };
-}
-
-pub fn clampedReader(underlying_stream: anytype, size: usize) ClampedReader(@TypeOf(underlying_stream)) {
-    return .{
-        .underlying_stream = underlying_stream,
-
-        .size = size,
-        .remaining = size,
-    };
-}
-
-test "ClampedReader" {
-    var string = "hello world";
-    var fixed_buffer_stream = std.io.fixedBufferStream(string);
-
-    var clamped_reader = clampedReader(fixed_buffer_stream.reader(), 5);
-    std.testing.expectEqual(@as(u8, 'h'), try clamped_reader.reader().readByte());
-    std.testing.expectEqual(@as(u8, 'e'), try clamped_reader.reader().readByte());
-    std.testing.expectEqual(@as(u8, 'l'), try clamped_reader.reader().readByte());
-    std.testing.expectEqual(@as(u8, 'l'), try clamped_reader.reader().readByte());
-    std.testing.expectEqual(@as(u8, 'o'), try clamped_reader.reader().readByte());
-    std.testing.expectError(error.EndOfStream, clamped_reader.reader().readByte());
-}
-
 fn Mut(comptime T: type) type {
     var ptr_info = @typeInfo(T).Pointer;
     ptr_info.is_const = false;
@@ -346,7 +300,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
             else => return err,
         };
         const payload_len = try readVarint(u32, reader);
-        var payload = clampedReader(reader, payload_len);
+        var payload = std.io.limitedReader(reader, payload_len);
 
         switch (try std.meta.intToEnum(std.wasm.Section, id)) {
             .type => {
@@ -460,7 +414,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, payload.reader());
                 for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, payload.reader());
-                    if (body_size != payload.remaining) {
+                    if (body_size != payload.bytes_left) {
                         // FIXME: this is probably the wrong size
                         return error.BodySizeMismatch;
                     }
