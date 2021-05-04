@@ -59,8 +59,10 @@ pub const RingAllocator = struct {
 
     fn alloc(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, return_address: usize) error{OutOfMemory}![]u8 {
         const self = @fieldParentPtr(RingAllocator, "allocator", allocator);
-        std.debug.assert(n <= self.max_alloc_size);
         std.debug.assert(ptr_align <= self.alignment);
+        if (n >= self.max_alloc_size) {
+            return error.OutOfMemory;
+        }
 
         const start = self.curr_index << self.shiftSize();
         self.curr_index += 1;
