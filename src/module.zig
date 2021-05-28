@@ -264,12 +264,12 @@ fn Mut(comptime T: type) type {
 }
 
 // --- Before ---
-// const count = try readVarint(u32, payload.reader());
+// const count = try readVarint(u32, section.reader());
 // result.field = arena.allocator.alloc(@TypeOf(result.field), count);
 // for (result.field) |*item| {
 //
 // --- After ---
-// const count = try readVarint(u32, payload.reader());
+// const count = try readVarint(u32, section.reader());
 // for (self.allocInto(&result.field, count)) |*item| {
 fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !Mut(std.meta.Child(@TypeOf(ptr_to_slice))) {
     const Slice = Mut(std.meta.Child(@TypeOf(ptr_to_slice)));
@@ -294,127 +294,130 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var result = Module.init(std.heap.ArenaAllocator.init(allocator));
     errdefer result.arena.deinit();
 
+    var customs = std.ArrayList(Module.Section(.custom)).init(&result.arena.allocator);
+    errdefer customs.deinit();
+
     while (true) {
         const id = reader.readByte() catch |err| switch (err) {
             error.EndOfStream => break,
             else => return err,
         };
-        const payload_len = try readVarint(u32, reader);
-        var payload = std.io.limitedReader(reader, payload_len);
+        const section_len = try readVarint(u32, reader);
+        var section = std.io.limitedReader(reader, section_len);
 
         switch (try std.meta.intToEnum(std.wasm.Section, id)) {
             .type => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.@"type", count)) |*t| {
-                    t.form = try readVarintEnum(Type.Form, payload.reader());
+                    t.form = try readVarintEnum(Type.Form, section.reader());
 
-                    const param_count = try readVarint(u32, payload.reader());
+                    const param_count = try readVarint(u32, section.reader());
                     for (try result.allocInto(&t.param_types, param_count)) |*param_type| {
-                        param_type.* = try readVarintEnum(Type.Value, payload.reader());
+                        param_type.* = try readVarintEnum(Type.Value, section.reader());
                     }
 
-                    const return_count = try readVarint(u1, payload.reader());
-                    t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, payload.reader());
+                    const return_count = try readVarint(u1, section.reader());
+                    t.return_type = if (return_count == 0) null else try readVarintEnum(Type.Value, section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .import => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.import, count)) |*i| {
-                    const module_len = try readVarint(u32, payload.reader());
+                    const module_len = try readVarint(u32, section.reader());
                     const module_data = try result.arena.allocator.alloc(u8, module_len);
-                    try payload.reader().readNoEof(module_data);
+                    try section.reader().readNoEof(module_data);
                     i.module = module_data;
 
-                    const field_len = try readVarint(u32, payload.reader());
+                    const field_len = try readVarint(u32, section.reader());
                     const field_data = try result.arena.allocator.alloc(u8, field_len);
-                    try payload.reader().readNoEof(field_data);
+                    try section.reader().readNoEof(field_data);
                     i.field = field_data;
 
                     // TODO: actually test import parsing
-                    const kind = try readVarintEnum(ExternalKind, payload.reader());
+                    const kind = try readVarintEnum(ExternalKind, section.reader());
                     i.kind = switch (kind) {
-                        .Function => .{ .Function = try readVarintEnum(Index.FuncType, payload.reader()) },
+                        .Function => .{ .Function = try readVarintEnum(Index.FuncType, section.reader()) },
                         .Table => @panic("TODO"),
                         .Memory => @panic("TODO"),
                         .Global => @panic("TODO"),
                     };
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .function => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.function, count)) |*f| {
-                    f.type_idx = try readVarintEnum(Index.FuncType, payload.reader());
+                    f.type_idx = try readVarintEnum(Index.FuncType, section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .table => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.table, count)) |*t| {
-                    t.element_type = try readVarintEnum(Type.Elem, payload.reader());
+                    t.element_type = try readVarintEnum(Type.Elem, section.reader());
 
-                    const flags = try readVarint(u1, payload.reader());
-                    t.limits.initial = try readVarint(u32, payload.reader());
-                    t.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
+                    const flags = try readVarint(u1, section.reader());
+                    t.limits.initial = try readVarint(u32, section.reader());
+                    t.limits.maximum = if (flags == 0) null else try readVarint(u32, section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .memory => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.memory, count)) |*m| {
-                    const flags = try readVarint(u1, payload.reader());
-                    m.limits.initial = try readVarint(u32, payload.reader());
-                    m.limits.maximum = if (flags == 0) null else try readVarint(u32, payload.reader());
+                    const flags = try readVarint(u1, section.reader());
+                    m.limits.initial = try readVarint(u32, section.reader());
+                    m.limits.maximum = if (flags == 0) null else try readVarint(u32, section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .global => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.global, count)) |*g| {
-                    g.@"type".content_type = try readVarintEnum(Type.Value, payload.reader());
-                    g.@"type".mutability = (try readVarint(u1, payload.reader())) == 1;
-                    g.init = try InitExpr.parse(payload.reader());
+                    g.@"type".content_type = try readVarintEnum(Type.Value, section.reader());
+                    g.@"type".mutability = (try readVarint(u1, section.reader())) == 1;
+                    g.init = try InitExpr.parse(section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .@"export" => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.@"export", count)) |*e| {
-                    const field_len = try readVarint(u32, payload.reader());
+                    const field_len = try readVarint(u32, section.reader());
                     const field_data = try result.arena.allocator.alloc(u8, field_len);
-                    try payload.reader().readNoEof(field_data);
+                    try section.reader().readNoEof(field_data);
                     e.field = field_data;
-                    e.kind = try readVarintEnum(ExternalKind, payload.reader());
-                    e.index = try readVarint(u32, payload.reader());
+                    e.kind = try readVarintEnum(ExternalKind, section.reader());
+                    e.index = try readVarint(u32, section.reader());
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .start => {
-                const index = try readVarint(u32, payload.reader());
+                const index = try readVarint(u32, section.reader());
                 result.start = .{
-                    .index = try readVarintEnum(Index.Function, payload.reader()),
+                    .index = try readVarintEnum(Index.Function, section.reader()),
                 };
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .element => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.element, count)) |*e| {
-                    e.index = try readVarintEnum(Index.Table, payload.reader());
-                    e.offset = try InitExpr.parse(payload.reader());
+                    e.index = try readVarintEnum(Index.Table, section.reader());
+                    e.offset = try InitExpr.parse(section.reader());
 
-                    const num_elem = try readVarint(u32, payload.reader());
+                    const num_elem = try readVarint(u32, section.reader());
                     for (try result.allocInto(&e.elems, count)) |*func| {
-                        func.* = try readVarintEnum(Index.Function, payload.reader());
+                        func.* = try readVarintEnum(Index.Function, section.reader());
                     }
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .code => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.code, count)) |*c| {
-                    const body_size = try readVarint(u32, payload.reader());
-                    if (body_size != payload.bytes_left) {
+                    const body_size = try readVarint(u32, section.reader());
+                    if (body_size != section.bytes_left) {
                         // FIXME: this is probably the wrong size
                         return error.BodySizeMismatch;
                     }
@@ -422,10 +425,10 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     c.locals = blk: {
                         // TODO: double pass here to preallocate the exact array size
                         var list = std.ArrayList(Type.Value).init(&result.arena.allocator);
-                        var local_count = try readVarint(u32, payload.reader());
+                        var local_count = try readVarint(u32, section.reader());
                         while (local_count > 0) : (local_count -= 1) {
-                            var current_count = try readVarint(u32, payload.reader());
-                            const typ = try readVarintEnum(Type.Value, payload.reader());
+                            var current_count = try readVarint(u32, section.reader());
+                            const typ = try readVarintEnum(Type.Value, section.reader());
                             while (current_count > 0) : (current_count -= 1) {
                                 try list.append(typ);
                             }
@@ -436,7 +439,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     c.body = body: {
                         var list = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                         while (true) {
-                            const opcode = payload.reader().readByte() catch |err| switch (err) {
+                            const opcode = section.reader().readByte() catch |err| switch (err) {
                                 error.EndOfStream => {
                                     const last = list.popOrNull() orelse return error.MissingFunctionEnd;
                                     if (last.op != .end) {
@@ -454,32 +457,32 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 .pop_len = @intCast(u8, op_meta.pop.len),
                                 .arg = switch (op_meta.arg_kind) {
                                     .Void => undefined,
-                                    .I32 => .{ .I32 = try readVarint(i32, payload.reader()) },
-                                    .U32 => .{ .U32 = try readVarint(u32, payload.reader()) },
-                                    .I64 => .{ .I64 = try readVarint(i64, payload.reader()) },
-                                    .U64 => .{ .U64 = try readVarint(u64, payload.reader()) },
-                                    .F32 => .{ .F64 = @bitCast(f32, try payload.reader().readIntLittle(i32)) },
-                                    .F64 => .{ .F64 = @bitCast(f64, try payload.reader().readIntLittle(i64)) },
-                                    .Type => .{ .I64 = try readVarint(u7, payload.reader()) },
+                                    .I32 => .{ .I32 = try readVarint(i32, section.reader()) },
+                                    .U32 => .{ .U32 = try readVarint(u32, section.reader()) },
+                                    .I64 => .{ .I64 = try readVarint(i64, section.reader()) },
+                                    .U64 => .{ .U64 = try readVarint(u64, section.reader()) },
+                                    .F32 => .{ .F64 = @bitCast(f32, try section.reader().readIntLittle(i32)) },
+                                    .F64 => .{ .F64 = @bitCast(f64, try section.reader().readIntLittle(i64)) },
+                                    .Type => .{ .I64 = try readVarint(u7, section.reader()) },
                                     .U32z => .{
                                         .U32z = .{
-                                            .data = try readVarint(u32, payload.reader()),
-                                            .reserved = try payload.reader().readByte(),
+                                            .data = try readVarint(u32, section.reader()),
+                                            .reserved = try section.reader().readByte(),
                                         },
                                     },
                                     .Mem => .{
                                         .Mem = .{
-                                            .offset = try readVarint(u32, payload.reader()),
-                                            .align_ = try readVarint(u32, payload.reader()),
+                                            .offset = try readVarint(u32, section.reader()),
+                                            .align_ = try readVarint(u32, section.reader()),
                                         },
                                     },
                                     .Array => blk: {
-                                        const target_count = try readVarint(u32, payload.reader());
+                                        const target_count = try readVarint(u32, section.reader());
                                         const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
 
                                         const data = try result.arena.allocator.alloc(u32, size);
                                         for (data) |*item| {
-                                            item.* = try readVarint(u32, payload.reader());
+                                            item.* = try readVarint(u32, section.reader());
                                         }
                                         break :blk .{
                                             .Array = .{
@@ -493,30 +496,45 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                         }
                     };
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
             .data => {
-                const count = try readVarint(u32, payload.reader());
+                const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.data, count)) |*d| {
-                    d.index = try readVarintEnum(Index.Memory, payload.reader());
-                    d.offset = try InitExpr.parse(payload.reader());
+                    d.index = try readVarintEnum(Index.Memory, section.reader());
+                    d.offset = try InitExpr.parse(section.reader());
 
-                    const size = try readVarint(u32, payload.reader());
+                    const size = try readVarint(u32, section.reader());
                     const data = try result.arena.allocator.alloc(u8, size);
-                    try payload.reader().readNoEof(data);
+                    try section.reader().readNoEof(data);
                     d.data = data;
                 }
-                try expectEos(payload.reader());
+                try expectEos(section.reader());
             },
-            .custom => @panic("TODO"),
+            .custom => {
+                const custom_section = try customs.addOne();
+
+                const name_len = try readVarint(u32, section.reader());
+                const name = try result.arena.allocator.alloc(u8, name_len);
+                try section.reader().readNoEof(name);
+                custom_section.name = name;
+
+                const payload = try result.arena.allocator.alloc(u8, section.bytes_left);
+                try section.reader().readNoEof(payload);
+                custom_section.payload = payload;
+
+                try expectEos(section.reader());
+            },
         }
 
         // Putting this in all the switch paths makes debugging much easier
         // Leaving an extra one here in case one of the paths is missing
         if (std.builtin.mode == .Debug) {
-            try expectEos(payload.reader());
+            try expectEos(section.reader());
         }
     }
+
+    result.custom = customs.toOwnedSlice();
 
     try result.post_process();
 
