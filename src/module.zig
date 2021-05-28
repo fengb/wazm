@@ -123,9 +123,9 @@ pub fn Section(comptime section: std.wasm.Section) type {
 
 test "Section" {
     const module: Module = undefined;
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.custom)), Section(.custom));
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.memory)), Section(.memory));
-    std.testing.expectEqual(std.meta.Child(@TypeOf(module.data)), Section(.data));
+    try std.testing.expectEqual(std.meta.Child(@TypeOf(module.custom)), Section(.custom));
+    try std.testing.expectEqual(std.meta.Child(@TypeOf(module.memory)), Section(.memory));
+    try std.testing.expectEqual(std.meta.Child(@TypeOf(module.data)), Section(.data));
 }
 
 pub const Index = struct {
@@ -214,29 +214,29 @@ fn readVarint(comptime T: type, reader: anytype) !T {
 test "readVarint" {
     {
         var ios = std.io.fixedBufferStream("\xE5\x8E\x26");
-        std.testing.expectEqual(@as(u32, 624485), try readVarint(u32, ios.reader()));
+        try std.testing.expectEqual(@as(u32, 624485), try readVarint(u32, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(u21, 624485), try readVarint(u21, ios.reader()));
+        try std.testing.expectEqual(@as(u21, 624485), try readVarint(u21, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\xC0\xBB\x78");
-        std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, ios.reader()));
+        try std.testing.expectEqual(@as(i32, -123456), try readVarint(i32, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.reader()));
+        try std.testing.expectEqual(@as(i21, -123456), try readVarint(i21, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\x7F");
-        std.testing.expectEqual(@as(i7, -1), try readVarint(i7, ios.reader()));
+        try std.testing.expectEqual(@as(i7, -1), try readVarint(i7, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i21, -1), try readVarint(i21, ios.reader()));
+        try std.testing.expectEqual(@as(i21, -1), try readVarint(i21, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i32, -1), try readVarint(i32, ios.reader()));
+        try std.testing.expectEqual(@as(i32, -1), try readVarint(i32, ios.reader()));
     }
     {
         var ios = std.io.fixedBufferStream("\xa4\x03");
-        std.testing.expectEqual(@as(i21, 420), try readVarint(i21, ios.reader()));
+        try std.testing.expectEqual(@as(i21, 420), try readVarint(i21, ios.reader()));
         ios.pos = 0;
-        std.testing.expectEqual(@as(i32, 420), try readVarint(i32, ios.reader()));
+        try std.testing.expectEqual(@as(i32, 420), try readVarint(i32, ios.reader()));
     }
 }
 
@@ -532,10 +532,10 @@ test "empty module" {
     var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
-    std.testing.expectEqual(@as(usize, 0), module.memory.len);
-    std.testing.expectEqual(@as(usize, 0), module.@"type".len);
-    std.testing.expectEqual(@as(usize, 0), module.function.len);
-    std.testing.expectEqual(@as(usize, 0), module.@"export".len);
+    try std.testing.expectEqual(@as(usize, 0), module.memory.len);
+    try std.testing.expectEqual(@as(usize, 0), module.@"type".len);
+    try std.testing.expectEqual(@as(usize, 0), module.function.len);
+    try std.testing.expectEqual(@as(usize, 0), module.@"export".len);
 }
 
 test "module with only type" {
@@ -546,9 +546,9 @@ test "module with only type" {
     var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
-    std.testing.expectEqual(@as(usize, 1), module.@"type".len);
-    std.testing.expectEqual(@as(usize, 0), module.@"type"[0].param_types.len);
-    std.testing.expectEqual(@as(?Type.Value, null), module.@"type"[0].return_type);
+    try std.testing.expectEqual(@as(usize, 1), module.@"type".len);
+    try std.testing.expectEqual(@as(usize, 0), module.@"type"[0].param_types.len);
+    try std.testing.expectEqual(@as(?Type.Value, null), module.@"type"[0].return_type);
 }
 
 test "module with function body" {
@@ -563,16 +563,16 @@ test "module with function body" {
     var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
-    std.testing.expectEqual(@as(usize, 1), module.@"type".len);
-    std.testing.expectEqual(@as(usize, 0), module.@"type"[0].param_types.len);
-    std.testing.expectEqual(Type.Value.I32, module.@"type"[0].return_type.?);
+    try std.testing.expectEqual(@as(usize, 1), module.@"type".len);
+    try std.testing.expectEqual(@as(usize, 0), module.@"type"[0].param_types.len);
+    try std.testing.expectEqual(Type.Value.I32, module.@"type"[0].return_type.?);
 
-    std.testing.expectEqual(@as(usize, 1), module.@"export".len);
+    try std.testing.expectEqual(@as(usize, 1), module.@"export".len);
 
-    std.testing.expectEqual(@as(usize, 1), module.function.len);
-    std.testing.expectEqual(@as(usize, 1), module.code.len);
-    std.testing.expectEqual(@as(usize, 1), module.code[0].body.len);
-    std.testing.expectEqual(std.wasm.Opcode.i32_const, module.code[0].body[0].op);
+    try std.testing.expectEqual(@as(usize, 1), module.function.len);
+    try std.testing.expectEqual(@as(usize, 1), module.code.len);
+    try std.testing.expectEqual(@as(usize, 1), module.code[0].body.len);
+    try std.testing.expectEqual(std.wasm.Opcode.i32_const, module.code[0].body[0].op);
 }
 
 test "global definitions" {
@@ -583,7 +583,7 @@ test "global definitions" {
     var module = try Module.parse(std.testing.allocator, ios.reader());
     defer module.deinit();
 
-    std.testing.expectEqual(@as(usize, 1), module.global.len);
-    std.testing.expectEqual(Type.Value.I32, module.global[0].type.content_type);
-    std.testing.expectEqual(true, module.global[0].type.mutability);
+    try std.testing.expectEqual(@as(usize, 1), module.global.len);
+    try std.testing.expectEqual(Type.Value.I32, module.global[0].type.content_type);
+    try std.testing.expectEqual(true, module.global[0].type.mutability);
 }

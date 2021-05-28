@@ -256,9 +256,9 @@ test "sexpr" {
 
         const root = try s.root();
 
-        std.testing.expectEqualSlices(u8, "a", try root.obtainAtom(&ring.allocator));
-        std.testing.expectEqualSlices(u8, "bc", try root.obtainAtom(&ring.allocator));
-        std.testing.expectEqualSlices(u8, "42", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "a", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "bc", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "42", try root.obtainAtom(&ring.allocator));
         try root.expectEnd();
         try root.expectEnd();
         try root.expectEnd();
@@ -270,10 +270,10 @@ test "sexpr" {
         const root = try s.root();
 
         const first = try root.obtainList();
-        std.testing.expectEqual(@as(?@TypeOf(root), null), try first.nextList());
+        try std.testing.expectEqual(@as(?@TypeOf(root), null), try first.nextList());
 
         const second = try root.obtainList();
-        std.testing.expectEqual(@as(?@TypeOf(root), null), try second.nextList());
+        try std.testing.expectEqual(@as(?@TypeOf(root), null), try second.nextList());
     }
     {
         var fbs = std.io.fixedBufferStream("( ( ( ())))");
@@ -294,9 +294,9 @@ test "sexpr" {
 
         const root = try s.root();
 
-        std.testing.expectEqualSlices(u8, "block", try root.obtainAtom(&ring.allocator));
-        std.testing.expectEqualSlices(u8, "local.get", try root.obtainAtom(&ring.allocator));
-        std.testing.expectEqualSlices(u8, "4", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "block", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "local.get", try root.obtainAtom(&ring.allocator));
+        try std.testing.expectEqualSlices(u8, "4", try root.obtainAtom(&ring.allocator));
         try root.expectEnd();
     }
 }
@@ -657,17 +657,17 @@ test "parseNoValidate" {
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 0), module.memory.len);
-        std.testing.expectEqual(@as(usize, 0), module.function.len);
-        std.testing.expectEqual(@as(usize, 0), module.@"export".len);
+        try std.testing.expectEqual(@as(usize, 0), module.memory.len);
+        try std.testing.expectEqual(@as(usize, 0), module.function.len);
+        try std.testing.expectEqual(@as(usize, 0), module.@"export".len);
     }
     {
         var fbs = std.io.fixedBufferStream("(module (memory 42))");
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.memory.len);
-        std.testing.expectEqual(@as(u32, 42), module.memory[0].limits.initial);
+        try std.testing.expectEqual(@as(usize, 1), module.memory.len);
+        try std.testing.expectEqual(@as(u32, 42), module.memory[0].limits.initial);
     }
     {
         var fbs = std.io.fixedBufferStream(
@@ -680,20 +680,20 @@ test "parseNoValidate" {
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.function.len);
+        try std.testing.expectEqual(@as(usize, 1), module.function.len);
 
         const func_type = module.@"type"[0];
-        std.testing.expectEqual(@as(usize, 2), func_type.param_types.len);
-        std.testing.expectEqual(Module.Type.Value.I64, func_type.param_types[0]);
-        std.testing.expectEqual(Module.Type.Value.F32, func_type.param_types[1]);
-        std.testing.expectEqual(Module.Type.Value.I64, func_type.return_type.?);
+        try std.testing.expectEqual(@as(usize, 2), func_type.param_types.len);
+        try std.testing.expectEqual(Module.Type.Value.I64, func_type.param_types[0]);
+        try std.testing.expectEqual(Module.Type.Value.F32, func_type.param_types[1]);
+        try std.testing.expectEqual(Module.Type.Value.I64, func_type.return_type.?);
 
         const code = module.code[0];
 
-        std.testing.expectEqual(@as(usize, 1), code.locals.len);
-        std.testing.expectEqual(Module.Type.Value.F64, code.locals[0]);
+        try std.testing.expectEqual(@as(usize, 1), code.locals.len);
+        try std.testing.expectEqual(Module.Type.Value.F64, code.locals[0]);
 
-        std.testing.expectEqual(@as(usize, 3), code.body.len);
+        try std.testing.expectEqual(@as(usize, 3), code.body.len);
     }
     {
         var fbs = std.io.fixedBufferStream(
@@ -704,12 +704,12 @@ test "parseNoValidate" {
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.function.len);
+        try std.testing.expectEqual(@as(usize, 1), module.function.len);
 
-        std.testing.expectEqual(@as(usize, 1), module.@"export".len);
-        std.testing.expectEqualSlices(u8, "foo", module.@"export"[0].field);
-        std.testing.expectEqual(Module.ExternalKind.Function, module.@"export"[0].kind);
-        std.testing.expectEqual(@as(u32, 0), module.@"export"[0].index);
+        try std.testing.expectEqual(@as(usize, 1), module.@"export".len);
+        try std.testing.expectEqualSlices(u8, "foo", module.@"export"[0].field);
+        try std.testing.expectEqual(Module.ExternalKind.Function, module.@"export"[0].kind);
+        try std.testing.expectEqual(@as(u32, 0), module.@"export"[0].index);
     }
     {
         var fbs = std.io.fixedBufferStream(
@@ -720,19 +720,19 @@ test "parseNoValidate" {
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 1), module.@"type".len);
-        std.testing.expectEqual(Module.Type.Form.Func, module.@"type"[0].form);
-        std.testing.expectEqual(@as(usize, 1), module.@"type"[0].param_types.len);
-        std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].param_types[0]);
-        std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].return_type.?);
+        try std.testing.expectEqual(@as(usize, 1), module.@"type".len);
+        try std.testing.expectEqual(Module.Type.Form.Func, module.@"type"[0].form);
+        try std.testing.expectEqual(@as(usize, 1), module.@"type"[0].param_types.len);
+        try std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].param_types[0]);
+        try std.testing.expectEqual(Module.Type.Value.I32, module.@"type"[0].return_type.?);
 
-        std.testing.expectEqual(@as(usize, 1), module.import.len);
-        std.testing.expectEqualSlices(u8, "env", module.import[0].module);
-        std.testing.expectEqualSlices(u8, "fibonacci", module.import[0].field);
-        std.testing.expectEqual(Module.ExternalKind.Function, module.import[0].kind);
-        std.testing.expectEqual(@intToEnum(Module.Index.FuncType, 0), module.import[0].kind.Function);
+        try std.testing.expectEqual(@as(usize, 1), module.import.len);
+        try std.testing.expectEqualSlices(u8, "env", module.import[0].module);
+        try std.testing.expectEqualSlices(u8, "fibonacci", module.import[0].field);
+        try std.testing.expectEqual(Module.ExternalKind.Function, module.import[0].kind);
+        try std.testing.expectEqual(@intToEnum(Module.Index.FuncType, 0), module.import[0].kind.Function);
 
-        std.testing.expectEqual(@as(usize, 0), module.function.len);
+        try std.testing.expectEqual(@as(usize, 0), module.function.len);
     }
     {
         var fbs = std.io.fixedBufferStream(
@@ -744,18 +744,18 @@ test "parseNoValidate" {
         var module = try parseNoValidate(std.testing.allocator, fbs.reader());
         defer module.deinit();
 
-        std.testing.expectEqual(@as(usize, 3), module.global.len);
-        std.testing.expectEqual(Module.Type.Value.I32, module.global[0].@"type".content_type);
-        std.testing.expectEqual(true, module.global[0].@"type".mutability);
-        std.testing.expectEqual(@as(i32, -12), module.global[0].init.i32_const);
+        try std.testing.expectEqual(@as(usize, 3), module.global.len);
+        try std.testing.expectEqual(Module.Type.Value.I32, module.global[0].@"type".content_type);
+        try std.testing.expectEqual(true, module.global[0].@"type".mutability);
+        try std.testing.expectEqual(@as(i32, -12), module.global[0].init.i32_const);
 
-        std.testing.expectEqual(Module.Type.Value.I64, module.global[1].@"type".content_type);
-        std.testing.expectEqual(false, module.global[1].@"type".mutability);
-        std.testing.expectEqual(@as(i64, 12), module.global[1].init.i64_const);
+        try std.testing.expectEqual(Module.Type.Value.I64, module.global[1].@"type".content_type);
+        try std.testing.expectEqual(false, module.global[1].@"type".mutability);
+        try std.testing.expectEqual(@as(i64, 12), module.global[1].init.i64_const);
 
-        std.testing.expectEqual(Module.Type.Value.I32, module.global[2].@"type".content_type);
-        std.testing.expectEqual(false, module.global[2].@"type".mutability);
-        std.testing.expectEqual(@as(i32, 10), module.global[2].init.i32_const);
+        try std.testing.expectEqual(Module.Type.Value.I32, module.global[2].@"type".content_type);
+        try std.testing.expectEqual(false, module.global[2].@"type".mutability);
+        try std.testing.expectEqual(@as(i32, 10), module.global[2].init.i32_const);
     }
 }
 
@@ -774,21 +774,21 @@ test "parse blocks" {
     defer module.deinit();
 
     const body = module.code[0].body;
-    std.testing.expectEqual(@as(usize, 6), body.len);
+    try std.testing.expectEqual(@as(usize, 6), body.len);
 
-    std.testing.expectEqual(std.wasm.Opcode.block, body[0].op);
-    std.testing.expectEqual(Op.Arg.Type.I32, body[0].arg.Type);
+    try std.testing.expectEqual(std.wasm.Opcode.block, body[0].op);
+    try std.testing.expectEqual(Op.Arg.Type.I32, body[0].arg.Type);
 
-    std.testing.expectEqual(std.wasm.Opcode.loop, body[1].op);
-    std.testing.expectEqual(Op.Arg.Type.Void, body[1].arg.Type);
+    try std.testing.expectEqual(std.wasm.Opcode.loop, body[1].op);
+    try std.testing.expectEqual(Op.Arg.Type.Void, body[1].arg.Type);
 
-    std.testing.expectEqual(std.wasm.Opcode.br, body[2].op);
-    std.testing.expectEqual(@as(u32, 0), body[2].arg.U32);
+    try std.testing.expectEqual(std.wasm.Opcode.br, body[2].op);
+    try std.testing.expectEqual(@as(u32, 0), body[2].arg.U32);
 
-    std.testing.expectEqual(std.wasm.Opcode.br, body[3].op);
-    std.testing.expectEqual(@as(u32, 1), body[3].arg.U32);
+    try std.testing.expectEqual(std.wasm.Opcode.br, body[3].op);
+    try std.testing.expectEqual(@as(u32, 1), body[3].arg.U32);
 
-    std.testing.expectEqual(std.wasm.Opcode.end, body[4].op);
+    try std.testing.expectEqual(std.wasm.Opcode.end, body[4].op);
 
-    std.testing.expectEqual(std.wasm.Opcode.end, body[5].op);
+    try std.testing.expectEqual(std.wasm.Opcode.end, body[5].op);
 }

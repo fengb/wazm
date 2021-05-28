@@ -360,7 +360,7 @@ test "add nothing" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, module.post_process());
 }
 
 test "add wrong types" {
@@ -374,7 +374,7 @@ test "add wrong types" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, module.post_process());
 }
 
 test "return nothing" {
@@ -385,7 +385,7 @@ test "return nothing" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, module.post_process());
 }
 
 test "return wrong type" {
@@ -397,7 +397,7 @@ test "return wrong type" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, module.post_process());
 }
 
 test "jump locations" {
@@ -418,10 +418,10 @@ test "jump locations" {
     try module.post_process();
 
     const br_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 1), br_0.one.addr);
+    try std.testing.expectEqual(@as(usize, 1), br_0.one.addr);
 
     const br_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), br_1.one.addr);
+    try std.testing.expectEqual(@as(usize, 5), br_1.one.addr);
 }
 
 test "if/else locations" {
@@ -443,12 +443,12 @@ test "if/else locations" {
 
     const jump_if = module.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
     // Note that if's jump target is *after* the else instruction
-    std.testing.expectEqual(@as(usize, 4), jump_if.one.addr);
-    std.testing.expectEqual(@as(usize, 0), jump_if.one.stack_unroll);
+    try std.testing.expectEqual(@as(usize, 4), jump_if.one.addr);
+    try std.testing.expectEqual(@as(usize, 0), jump_if.one.stack_unroll);
 
     const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
-    std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
-    std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
+    try std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
+    try std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
 }
 
 test "invalid global idx" {
@@ -460,7 +460,7 @@ test "invalid global idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
+    try std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
 }
 
 test "valid global idx" {
@@ -483,7 +483,7 @@ test "invalid local idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    std.testing.expectError(error.LocalIndexOutOfBounds, module.post_process());
+    try std.testing.expectError(error.LocalIndexOutOfBounds, module.post_process());
 }
 
 test "valid local idx" {

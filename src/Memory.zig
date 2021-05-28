@@ -109,23 +109,23 @@ test "grow" {
     var mem = try Memory.init(std.testing.allocator, null, 1);
     defer mem.deinit();
 
-    std.testing.expectEqual(@as(u16, 1), mem.pageCount());
+    try std.testing.expectEqual(@as(u16, 1), mem.pageCount());
 
     try mem.grow(1);
-    std.testing.expectEqual(@as(u16, 2), mem.pageCount());
+    try std.testing.expectEqual(@as(u16, 2), mem.pageCount());
 }
 
 test "get/set" {
     var mem = try Memory.init(std.testing.allocator, null, 1);
     defer mem.deinit();
 
-    std.testing.expectEqual(@as(u16, 1), mem.pageCount());
+    try std.testing.expectEqual(@as(u16, 1), mem.pageCount());
 
     const ptr1 = P(u32){ .addr = 1234 };
     const ptr2 = P(u32){ .addr = 4321 };
     try mem.set(ptr1, 69);
     try mem.set(ptr2, 420);
 
-    std.testing.expectEqual(@as(u32, 69), try mem.get(ptr1));
-    std.testing.expectEqual(@as(u32, 420), try mem.get(ptr2));
+    try std.testing.expectEqual(@as(u32, 69), try mem.get(ptr1));
+    try std.testing.expectEqual(@as(u32, 420), try mem.get(ptr2));
 }

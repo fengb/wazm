@@ -21,11 +21,11 @@ test "get global" {
 
     {
         const result = try instance.call("add", .{@as(i32, 1)});
-        std.testing.expectEqual(@as(i32, 11), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 11), result.?.I32);
     }
     {
         const result = try instance.call("add", .{@as(i32, 5)});
-        std.testing.expectEqual(@as(i32, 15), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 15), result.?.I32);
     }
 }
 
@@ -35,7 +35,7 @@ test "set global" {
         \\  (global (;0;) i32 (i32.const 0))
         \\  (func (param i32)
         \\    local.get 0
-        \\	  global.set 0)
+        \\    global.set 0)
         \\  (export "get" (func 0)))
     );
     var module = try Wat.parse(std.testing.allocator, fbs.reader());
@@ -46,11 +46,11 @@ test "set global" {
 
     {
         const result = try instance.call("get", .{@as(i32, 1)});
-        std.testing.expectEqual(Instance.Value{ .I32 = 1 }, instance.globals[0]);
+        try std.testing.expectEqual(Instance.Value{ .I32 = 1 }, instance.globals[0]);
     }
 
     {
         const result = try instance.call("get", .{@as(i32, 5)});
-        std.testing.expectEqual(Instance.Value{ .I32 = 5 }, instance.globals[0]);
+        try std.testing.expectEqual(Instance.Value{ .I32 = 5 }, instance.globals[0]);
     }
 }

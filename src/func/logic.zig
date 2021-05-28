@@ -23,11 +23,11 @@ test "if/else" {
 
     {
         const result = try instance.call("if", .{@as(i32, 1)});
-        std.testing.expectEqual(@as(i32, 1), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 1), result.?.I32);
     }
     {
         const result = try instance.call("if", .{@as(i32, 0)});
-        std.testing.expectEqual(@as(i32, 42), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 42), result.?.I32);
     }
 }
 
@@ -49,10 +49,10 @@ test "select" {
 
     {
         const result = try instance.call("if", .{@as(i32, 1)});
-        std.testing.expectEqual(@as(i32, 1), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 1), result.?.I32);
     }
     {
         const result = try instance.call("if", .{@as(i32, 0)});
-        std.testing.expectEqual(@as(i32, 42), result.?.I32);
+        try std.testing.expectEqual(@as(i32, 42), result.?.I32);
     }
 }

@@ -126,7 +126,7 @@ pub const Fixval = extern union {
 test "Fixval subtype sizes" {
     inline for (std.meta.declarations(Fixval)) |decl| {
         if (decl.data == .Type) {
-            std.testing.expectEqual(@sizeOf(Fixval), @sizeOf(decl.data.Type));
+            try std.testing.expectEqual(@sizeOf(Fixval), @sizeOf(decl.data.Type));
         }
     }
 }
@@ -264,25 +264,25 @@ fn publicFunctions(comptime T: type) []std.builtin.TypeInfo.Declaration {
 
 test "ops" {
     const nop = Meta.of(.nop);
-    std.testing.expectEqual(nop.arg_kind, .Void);
-    std.testing.expectEqual(nop.push, null);
-    std.testing.expectEqual(nop.pop.len, 0);
+    try std.testing.expectEqual(nop.arg_kind, .Void);
+    try std.testing.expectEqual(nop.push, null);
+    try std.testing.expectEqual(nop.pop.len, 0);
 
     const i32_load = Meta.of(.i32_load);
-    std.testing.expectEqual(i32_load.arg_kind, .Mem);
-    std.testing.expectEqual(i32_load.push, .I32);
+    try std.testing.expectEqual(i32_load.arg_kind, .Mem);
+    try std.testing.expectEqual(i32_load.push, .I32);
 
-    std.testing.expectEqual(i32_load.pop.len, 1);
-    std.testing.expectEqual(i32_load.pop[0], .I32);
+    try std.testing.expectEqual(i32_load.pop.len, 1);
+    try std.testing.expectEqual(i32_load.pop[0], .I32);
 
     const select = Meta.of(.select);
-    std.testing.expectEqual(select.arg_kind, .Void);
-    std.testing.expectEqual(select.push, .Poly);
+    try std.testing.expectEqual(select.arg_kind, .Void);
+    try std.testing.expectEqual(select.push, .Poly);
 
-    std.testing.expectEqual(select.pop.len, 3);
-    std.testing.expectEqual(select.pop[0], .Poly);
-    std.testing.expectEqual(select.pop[1], .Poly);
-    std.testing.expectEqual(select.pop[2], .I32);
+    try std.testing.expectEqual(select.pop.len, 3);
+    try std.testing.expectEqual(select.pop[0], .Poly);
+    try std.testing.expectEqual(select.pop[1], .Poly);
+    try std.testing.expectEqual(select.pop[2], .I32);
 }
 
 pub const WasmTrap = error{
