@@ -88,6 +88,15 @@ pub const Fixval = extern union {
     F64: f64,
     V128: i128, // TODO: make this a real vector
 
+    pub fn format(
+        self: Fixval,
+        comptime fmt: []const u8,
+        opts: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("Fixval(0x{x})", .{self.V128});
+    }
+
     pub const Void = extern struct {
         _pad: u128,
     };

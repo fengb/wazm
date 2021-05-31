@@ -467,8 +467,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                     },
                                     .Mem => .{
                                         .Mem = .{
-                                            .offset = try readVarint(u32, section.reader()),
                                             .align_ = try readVarint(u32, section.reader()),
+                                            .offset = try readVarint(u32, section.reader()),
                                         },
                                     },
                                     .Array => blk: {
