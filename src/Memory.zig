@@ -47,37 +47,65 @@ pub fn grow(self: *Memory, additional_pages: u16) !void {
 pub fn load(self: Memory, comptime T: type, start: u32, offset: u32) !T {
     const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
     const idx = try std.math.add(u32, start, offset);
-    const bytes = try self.chunk(idx, @sizeOf(T));
-    return @bitCast(T, std.mem.readIntLittle(Int, bytes));
+    const bytes = try self.pageChunk(idx);
+    // TODO: handle split byte boundary
+    return @bitCast(T, std.mem.readIntLittle(Int, bytes[0..@sizeOf(T)]));
 }
 
 pub fn store(self: Memory, comptime T: type, start: u32, offset: u32, value: T) !void {
     const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
     const idx = try std.math.add(u32, start, offset);
-    const bytes = try self.chunk(idx, @sizeOf(T));
-    std.mem.writeIntLittle(Int, bytes, @bitCast(Int, value));
+    const bytes = try self.pageChunk(idx);
+    // TODO: handle split byte boundary
+    std.mem.writeIntLittle(Int, bytes[0..@sizeOf(T)], @bitCast(Int, value));
 }
 
-fn chunk(self: Memory, idx: u32, comptime size: u32) !*[size]u8 {
+fn pageChunk(self: Memory, idx: u32) ![]u8 {
     const page_num = idx / page_size;
     const offset = idx % page_size;
-    const end = offset + size;
-    if (page_num >= self.pageCount() or end >= page_size) {
-        // TODO: handle split byte boundary
+    if (page_num >= self.pageCount()) {
+        std.log.info("{} > {}", .{ page_num, self.pageCount() });
         return error.OutOfBounds;
     }
     const page = self.pages.items[page_num];
-    return page[offset..][0..size];
+    return page[offset..];
 }
 
 pub fn get(self: Memory, ptr: anytype) !@TypeOf(ptr).Pointee {
     return self.load(@TypeOf(ptr).Pointee, ptr.addr, 0);
 }
 
-pub fn getMany(self: Memory, ptr: anytype, size: u32) ![]u8 {
-    @panic("TODO");
-    //return self.data[ptr.addr..][0..size];
+pub fn iterBytes(self: Memory, ptr: P(u8), size: u32) ByteIterator {
+    return .{
+        .memory = self,
+        .ptr = ptr,
+        .remaining = size,
+    };
 }
+
+const ByteIterator = struct {
+    memory: Memory,
+    ptr: P(u8),
+    remaining: u32,
+
+    pub fn next(iter: *ByteIterator) !?[]u8 {
+        if (iter.remaining == 0) {
+            return null;
+        }
+
+        const bytes = try iter.memory.pageChunk(iter.ptr.addr);
+
+        const size = @intCast(u16, bytes.len);
+        if (size >= iter.remaining) {
+            defer iter.remaining = 0;
+            return bytes[0..iter.remaining];
+        } else {
+            iter.remaining -= size;
+            iter.ptr = try iter.ptr.offset(size);
+            return bytes;
+        }
+    }
+};
 
 pub fn set(self: Memory, ptr: anytype, value: @TypeOf(ptr).Pointee) !void {
     return self.store(@TypeOf(ptr).Pointee, ptr.addr, 0, value);
