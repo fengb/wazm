@@ -51,7 +51,7 @@ pub fn init(module: *Module) !PostProcess {
         try stack_validator.process(import_funcs.items, module, f);
 
         // Fill in jump targets
-        const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f, .types = stack_validator.types.list.items };
+        const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f + import_funcs.items.len, .types = stack_validator.types.list.items };
 
         for (code.body) |instr, instr_idx| {
             switch (instr.op) {
