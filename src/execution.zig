@@ -10,7 +10,6 @@ const Execution = @This();
 memory: *Memory,
 funcs: []const Instance.Func,
 allocator: *std.mem.Allocator,
-jumps: Module.InstrJumps,
 instance: *const Instance,
 
 stack: []Op.Fixval,
@@ -22,7 +21,6 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         .memory = &instance.memory,
         .funcs = instance.funcs,
         .allocator = instance.allocator,
-        .jumps = instance.module.jumps,
         .instance = instance,
 
         .stack = stack,
@@ -146,7 +144,7 @@ pub fn unwindCall(self: *Execution) ?Op.Fixval {
 }
 
 pub fn jump(self: *Execution, table_idx: ?u32) void {
-    const meta = self.jumps.get(.{
+    const meta = self.instance.module.post_process.?.jumps.get(.{
         .func = self.current_frame.func,
         .instr = self.current_frame.instr - 1,
     }).?;

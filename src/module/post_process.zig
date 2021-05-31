@@ -4,7 +4,22 @@ const Module = @import("../module.zig");
 const Op = @import("../op.zig");
 const Wat = @import("../wat.zig");
 
-pub fn post_process(self: *Module) !void {
+const PostProcess = @This();
+
+jumps: InstrJumps,
+
+pub const InstrJumps = std.AutoHashMap(struct { func: u32, instr: u32 }, union {
+    one: JumpTarget,
+    many: [*]const JumpTarget, // len = args.len
+});
+
+pub const JumpTarget = struct {
+    has_value: bool,
+    addr: u32,
+    stack_unroll: u32,
+};
+
+pub fn init(self: *Module) !PostProcess {
     var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
     defer temp_arena.deinit();
 
@@ -16,12 +31,13 @@ pub fn post_process(self: *Module) !void {
     }
 
     var stack_validator = StackValidator.init(&temp_arena.allocator);
+    var jumps = InstrJumps.init(&self.arena.allocator);
 
     for (self.code) |code, f| {
         try stack_validator.process(self, f);
 
         // Fill in jump targets
-        const jump_targeter = JumpTargeter{ .module = self, .func_idx = f, .types = stack_validator.types.list.items };
+        const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f, .types = stack_validator.types.list.items };
 
         for (code.body) |instr, instr_idx| {
             switch (instr.op) {
@@ -34,7 +50,7 @@ pub fn post_process(self: *Module) !void {
                     });
                 },
                 .br_table => {
-                    const targets = try self.arena.allocator.alloc(Module.JumpTarget, instr.arg.Array.len);
+                    const targets = try self.arena.allocator.alloc(JumpTarget, instr.arg.Array.len);
                     for (targets) |*target, t| {
                         const block_level = instr.arg.Array.ptr[t];
                         const block = stack_validator.blocks.upFrom(instr_idx, block_level) orelse return error.JumpExceedsBlock;
@@ -68,10 +84,14 @@ pub fn post_process(self: *Module) !void {
             }
         }
     }
+
+    return PostProcess{
+        .jumps = jumps,
+    };
 }
 
 const JumpTargeter = struct {
-    module: *Module,
+    jumps: *InstrJumps,
     func_idx: usize,
     types: []const ?StackLedger(Module.Type.Value).Node,
 
@@ -83,8 +103,7 @@ const JumpTargeter = struct {
         // stackDepth reflects the status *after* execution
         // and we're jumping to right *before* the instruction
         const target_depth = stackDepth(self.types[args.target - 1]);
-        try self.module.jumps.putNoClobber(
-            &self.module.arena.allocator,
+        try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, args.from) },
             .{
                 .one = .{
@@ -96,12 +115,11 @@ const JumpTargeter = struct {
         );
     }
 
-    fn addMany(self: JumpTargeter, from_idx: usize, targets: []Module.JumpTarget) !void {
+    fn addMany(self: JumpTargeter, from_idx: usize, targets: []JumpTarget) !void {
         for (targets) |*target| {
             target.stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[target.addr]);
         }
-        try self.module.jumps.putNoClobber(
-            &self.module.arena.allocator,
+        try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
             .{ .many = targets.ptr },
         );
@@ -241,6 +259,7 @@ const StackValidator = struct {
 
                 // Type operations
                 .call => {
+                    // TODO: validate these indexes
                     const call_func = module.function[instr.arg.U32];
                     const call_type = module.@"type"[@enumToInt(call_func.type_idx)];
                     try self.types.checkPops(instr_idx, call_type.param_types);
@@ -348,7 +367,7 @@ test "smoke" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try module.post_process();
+    _ = try PostProcess.init(&module);
 }
 
 test "add nothing" {
@@ -360,7 +379,7 @@ test "add nothing" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, PostProcess.init(&module));
 }
 
 test "add wrong types" {
@@ -374,7 +393,7 @@ test "add wrong types" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, PostProcess.init(&module));
 }
 
 test "return nothing" {
@@ -385,7 +404,7 @@ test "return nothing" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, PostProcess.init(&module));
 }
 
 test "return wrong type" {
@@ -397,7 +416,7 @@ test "return wrong type" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try std.testing.expectError(error.StackMismatch, module.post_process());
+    try std.testing.expectError(error.StackMismatch, PostProcess.init(&module));
 }
 
 test "jump locations" {
@@ -415,12 +434,12 @@ test "jump locations" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try module.post_process();
+    const process = try PostProcess.init(&module);
 
-    const br_0 = module.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
+    const br_0 = process.jumps.get(.{ .func = 0, .instr = 2 }) orelse return error.JumpNotFound;
     try std.testing.expectEqual(@as(usize, 1), br_0.one.addr);
 
-    const br_1 = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
+    const br_1 = process.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
     try std.testing.expectEqual(@as(usize, 5), br_1.one.addr);
 }
 
@@ -439,14 +458,14 @@ test "if/else locations" {
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
 
-    try module.post_process();
+    const process = try PostProcess.init(&module);
 
-    const jump_if = module.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
+    const jump_if = process.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
     // Note that if's jump target is *after* the else instruction
     try std.testing.expectEqual(@as(usize, 4), jump_if.one.addr);
     try std.testing.expectEqual(@as(usize, 0), jump_if.one.stack_unroll);
 
-    const jump_else = module.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
+    const jump_else = process.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;
     try std.testing.expectEqual(@as(usize, 5), jump_else.one.addr);
     try std.testing.expectEqual(@as(usize, 0), jump_else.one.stack_unroll);
 }
@@ -460,7 +479,7 @@ test "invalid global idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    try std.testing.expectError(error.GlobalIndexOutOfBounds, module.post_process());
+    try std.testing.expectError(error.GlobalIndexOutOfBounds, PostProcess.init(&module));
 }
 
 test "valid global idx" {
@@ -472,7 +491,7 @@ test "valid global idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    try module.post_process();
+    _ = try PostProcess.init(&module);
 }
 
 test "invalid local idx" {
@@ -483,7 +502,7 @@ test "invalid local idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    try std.testing.expectError(error.LocalIndexOutOfBounds, module.post_process());
+    try std.testing.expectError(error.LocalIndexOutOfBounds, PostProcess.init(&module));
 }
 
 test "valid local idx" {
@@ -494,5 +513,5 @@ test "valid local idx" {
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
-    try module.post_process();
+    _ = try PostProcess.init(&module);
 }

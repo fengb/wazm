@@ -1,7 +1,7 @@
 const std = @import("std");
 const Instance = @import("instance.zig");
 const Op = @import("op.zig");
-pub const post_process = @import("module/post_process.zig").post_process;
+pub const PostProcess = @import("module/post_process.zig");
 
 const log = std.log.scoped(.wazm);
 const magic_number = std.mem.readIntLittle(u32, "\x00asm");
@@ -93,18 +93,7 @@ data: []const struct {
     data: []const u8,
 } = &.{},
 
-jumps: InstrJumps = .{},
-
-pub const InstrJumps = std.AutoHashMapUnmanaged(struct { func: u32, instr: u32 }, union {
-    one: JumpTarget,
-    many: [*]const JumpTarget, // len = args.len
-});
-
-pub const JumpTarget = struct {
-    has_value: bool,
-    addr: u32,
-    stack_unroll: u32,
-};
+post_process: ?PostProcess = null,
 
 pub fn init(arena: std.heap.ArenaAllocator) Module {
     return Module{ .arena = arena };
@@ -202,6 +191,12 @@ pub const InitExpr = union(enum) {
         return result;
     }
 };
+
+pub fn postProcess(self: *Module) !void {
+    if (self.post_process == null) {
+        self.post_process = try PostProcess.init(self);
+    }
+}
 
 fn readVarint(comptime T: type, reader: anytype) !T {
     const readFn = switch (@typeInfo(T).Int.signedness) {
@@ -536,7 +531,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
     result.custom = customs.toOwnedSlice();
 
-    try result.post_process();
+    result.post_process = try PostProcess.init(&result);
 
     return result;
 }

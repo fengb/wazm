@@ -305,7 +305,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var result = try parseNoValidate(allocator, reader);
     errdefer result.deinit();
 
-    try result.post_process();
+    try result.postProcess();
     return result;
 }
 
