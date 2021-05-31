@@ -174,7 +174,6 @@ const imports = struct {
         while (i < iovs_len) : (i += 1) {
             const iov = try mem.get(try iovs.offset(i));
             var iter = mem.iterBytes(iov.buf, iov.len);
-            std.log.info("{}", .{iov});
             while (try iter.next()) |bytes| {
                 os_vec[osi] = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
                 osi += 1;

@@ -74,10 +74,24 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         };
     }
 
+    var memory = try Memory.init(allocator, context, @intCast(u16, module.memory[0].limits.initial));
+    errdefer memory.deinit();
+
+    for (module.data) |data| {
+        // TODO: add validation in processing
+        const offset = switch (data.offset) {
+            .i32_const => |num| num,
+            .global_get => @panic("I don't know"),
+            else => unreachable,
+        };
+        const addr = try Memory.P(u8).init(@enumToInt(data.index)).offset(@intCast(u32, offset));
+        try memory.setMany(addr, data.data);
+    }
+
     return Instance{
         .module = module,
         .mutex = .{},
-        .memory = try Memory.init(allocator, context, 1),
+        .memory = memory,
         .exports = exports,
         .funcs = funcs.toOwnedSlice(),
         .globals = globals,

@@ -10,7 +10,7 @@ const page_size = 65536;
 
 pub fn init(allocator: *std.mem.Allocator, context: ?*c_void, initial_pages: u16) !Memory {
     var result = Memory{ .allocator = allocator, .pages = .{}, .context = context };
-    _ = try result.grow(initial_pages);
+    try result.grow(initial_pages);
     return result;
 }
 
@@ -95,7 +95,7 @@ const ByteIterator = struct {
 
         const bytes = try iter.memory.pageChunk(iter.ptr.addr);
 
-        const size = @intCast(u16, bytes.len);
+        const size = @intCast(u17, bytes.len);
         if (size >= iter.remaining) {
             defer iter.remaining = 0;
             return bytes[0..iter.remaining];
