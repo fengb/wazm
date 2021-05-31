@@ -7,10 +7,11 @@ const Wasi = @This();
 
 argv: [][]u8,
 environ: [][]u8 = &.{},
+exit_code: ?Exitcode = null,
 
 const P = Memory.P;
 
-pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
+pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !Exitcode {
     var module = try Module.parse(allocator, reader);
     defer module.deinit();
 
@@ -20,7 +21,15 @@ pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !void {
     });
     defer instance.deinit();
 
-    _ = try instance.call("_start", .{});
+    _ = instance.call("_start", .{}) catch |err| switch (err) {
+        error.Unreachable => {
+            if (self.exit_code) |code| return code;
+            return err;
+        },
+        else => return err,
+    };
+    // TODO: what should we do if there is no explicit exit?
+    return @intToEnum(Exitcode, 0);
 }
 
 pub const Size = u32;
@@ -266,9 +275,10 @@ const imports = struct {
         return Errno.success;
     }
 
-    pub fn proc_exit(mem: *Memory, rval: Exitcode) void {
-        //TODO: this is stupid
-        std.os.exit(@truncate(u8, @enumToInt(rval)));
+    pub fn proc_exit(mem: *Memory, rval: Exitcode) !void {
+        const wasi = mem.ext(Wasi);
+        wasi.exit_code = rval;
+        return error.Unreachable;
     }
 };
 
