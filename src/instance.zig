@@ -29,31 +29,26 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
 
     const karen = ImportManager(Imports);
 
-    for (module.import) |import, i| {
-        switch (import.kind) {
-            .Function => {
-                const type_idx = @enumToInt(import.kind.Function);
-                const func_type = module.@"type"[type_idx];
-                const lookup = karen.get(import.module, import.field) orelse return error.ImportNotFound;
-                if (!std.meta.eql(lookup.return_type, func_type.return_type)) {
-                    return error.ImportSignatureMismatch;
-                }
-                if (!std.mem.eql(Module.Type.Value, lookup.param_types, func_type.param_types)) {
-                    return error.ImportSignatureMismatch;
-                }
-
-                try funcs.append(.{
-                    .func_type = type_idx,
-                    .params = func_type.param_types,
-                    .result = func_type.return_type,
-                    .locals = &[0]Module.Type.Value{},
-                    .kind = .{
-                        .imported = .{ .func = lookup.func, .frame_size = lookup.frame_size },
-                    },
-                });
-            },
-            else => @panic("Implement me"),
+    for (module.post_process.?.import_funcs) |import_func| {
+        const type_idx = @enumToInt(import_func.type_idx);
+        const func_type = module.@"type"[type_idx];
+        const lookup = karen.get(import_func.module, import_func.field) orelse return error.ImportNotFound;
+        if (!std.meta.eql(lookup.return_type, func_type.return_type)) {
+            return error.ImportSignatureMismatch;
         }
+        if (!std.mem.eql(Module.Type.Value, lookup.param_types, func_type.param_types)) {
+            return error.ImportSignatureMismatch;
+        }
+
+        try funcs.append(.{
+            .func_type = type_idx,
+            .params = func_type.param_types,
+            .result = func_type.return_type,
+            .locals = &[0]Module.Type.Value{},
+            .kind = .{
+                .imported = .{ .func = lookup.func, .frame_size = lookup.frame_size },
+            },
+        });
     }
 
     for (module.code) |code, i| {

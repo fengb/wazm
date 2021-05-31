@@ -6,7 +6,14 @@ const Wat = @import("../wat.zig");
 
 const PostProcess = @This();
 
+import_funcs: []const ImportFunc,
 jumps: InstrJumps,
+
+pub const ImportFunc = struct {
+    module: []const u8,
+    field: []const u8,
+    type_idx: Module.Index.FuncType,
+};
 
 pub const InstrJumps = std.AutoHashMap(struct { func: u32, instr: u32 }, union {
     one: JumpTarget,
@@ -19,22 +26,29 @@ pub const JumpTarget = struct {
     stack_unroll: u32,
 };
 
-pub fn init(self: *Module) !PostProcess {
-    var temp_arena = std.heap.ArenaAllocator.init(self.arena.child_allocator);
+pub fn init(module: *Module) !PostProcess {
+    var temp_arena = std.heap.ArenaAllocator.init(module.arena.child_allocator);
     defer temp_arena.deinit();
 
-    var import_funcs: usize = 0;
-    for (self.import) |import| {
-        if (import.kind == .Function) {
-            import_funcs += 1;
+    var import_funcs = std.ArrayList(ImportFunc).init(&module.arena.allocator);
+    for (module.import) |import| {
+        switch (import.kind) {
+            .Function => |type_idx| {
+                try import_funcs.append(.{
+                    .module = import.module,
+                    .field = import.field,
+                    .type_idx = type_idx,
+                });
+            },
+            else => @panic("TODO"),
         }
     }
 
     var stack_validator = StackValidator.init(&temp_arena.allocator);
-    var jumps = InstrJumps.init(&self.arena.allocator);
+    var jumps = InstrJumps.init(&module.arena.allocator);
 
-    for (self.code) |code, f| {
-        try stack_validator.process(self, f);
+    for (module.code) |code, f| {
+        try stack_validator.process(import_funcs.items, module, f);
 
         // Fill in jump targets
         const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f, .types = stack_validator.types.list.items };
@@ -50,7 +64,7 @@ pub fn init(self: *Module) !PostProcess {
                     });
                 },
                 .br_table => {
-                    const targets = try self.arena.allocator.alloc(JumpTarget, instr.arg.Array.len);
+                    const targets = try module.arena.allocator.alloc(JumpTarget, instr.arg.Array.len);
                     for (targets) |*target, t| {
                         const block_level = instr.arg.Array.ptr[t];
                         const block = stack_validator.blocks.upFrom(instr_idx, block_level) orelse return error.JumpExceedsBlock;
@@ -87,6 +101,7 @@ pub fn init(self: *Module) !PostProcess {
 
     return PostProcess{
         .jumps = jumps,
+        .import_funcs = import_funcs.toOwnedSlice(),
     };
 }
 
@@ -218,7 +233,7 @@ const StackValidator = struct {
         };
     }
 
-    pub fn process(self: *StackValidator, module: *const Module, code_idx: usize) !void {
+    pub fn process(self: *StackValidator, import_funcs: []const ImportFunc, module: *const Module, code_idx: usize) !void {
         const func = module.function[code_idx];
         const func_type = module.@"type"[@enumToInt(func.type_idx)];
         const code = module.code[code_idx];
@@ -260,11 +275,22 @@ const StackValidator = struct {
                 // Type operations
                 .call => {
                     // TODO: validate these indexes
-                    const call_func = module.function[instr.arg.U32];
-                    const call_type = module.@"type"[@enumToInt(call_func.type_idx)];
-                    try self.types.checkPops(instr_idx, call_type.param_types);
-                    if (call_type.return_type) |typ| {
-                        self.types.pushAt(instr_idx, typ);
+                    const func_idx = instr.arg.U32;
+                    if (func_idx < import_funcs.len) {
+                        // import
+                        const call_func = import_funcs[func_idx];
+                        const call_type = module.@"type"[@enumToInt(call_func.type_idx)];
+                        try self.types.checkPops(instr_idx, call_type.param_types);
+                        if (call_type.return_type) |typ| {
+                            self.types.pushAt(instr_idx, typ);
+                        }
+                    } else {
+                        const call_func = module.function[func_idx - import_funcs.len];
+                        const call_type = module.@"type"[@enumToInt(call_func.type_idx)];
+                        try self.types.checkPops(instr_idx, call_type.param_types);
+                        if (call_type.return_type) |typ| {
+                            self.types.pushAt(instr_idx, typ);
+                        }
                     }
                 },
                 .call_indirect => {
