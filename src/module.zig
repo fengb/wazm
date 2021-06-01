@@ -412,18 +412,15 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.code, count)) |*c| {
                     const body_size = try readVarint(u32, section.reader());
-                    if (body_size != section.bytes_left) {
-                        // FIXME: this is probably the wrong size
-                        return error.BodySizeMismatch;
-                    }
+                    var body = std.io.limitedReader(section.reader(), body_size);
 
                     c.locals = blk: {
                         // TODO: double pass here to preallocate the exact array size
                         var list = std.ArrayList(Type.Value).init(&result.arena.allocator);
-                        var local_count = try readVarint(u32, section.reader());
+                        var local_count = try readVarint(u32, body.reader());
                         while (local_count > 0) : (local_count -= 1) {
-                            var current_count = try readVarint(u32, section.reader());
-                            const typ = try readVarintEnum(Type.Value, section.reader());
+                            var current_count = try readVarint(u32, body.reader());
+                            const typ = try readVarintEnum(Type.Value, body.reader());
                             while (current_count > 0) : (current_count -= 1) {
                                 try list.append(typ);
                             }
@@ -434,7 +431,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     c.body = body: {
                         var list = std.ArrayList(Module.Instr).init(&result.arena.allocator);
                         while (true) {
-                            const opcode = section.reader().readByte() catch |err| switch (err) {
+                            const opcode = body.reader().readByte() catch |err| switch (err) {
                                 error.EndOfStream => {
                                     const last = list.popOrNull() orelse return error.MissingFunctionEnd;
                                     if (last.op != .end) {
@@ -452,32 +449,32 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                 .pop_len = @intCast(u8, op_meta.pop.len),
                                 .arg = switch (op_meta.arg_kind) {
                                     .Void => undefined,
-                                    .I32 => .{ .I32 = try readVarint(i32, section.reader()) },
-                                    .U32 => .{ .U32 = try readVarint(u32, section.reader()) },
-                                    .I64 => .{ .I64 = try readVarint(i64, section.reader()) },
-                                    .U64 => .{ .U64 = try readVarint(u64, section.reader()) },
-                                    .F32 => .{ .F64 = @bitCast(f32, try section.reader().readIntLittle(i32)) },
-                                    .F64 => .{ .F64 = @bitCast(f64, try section.reader().readIntLittle(i64)) },
-                                    .Type => .{ .I64 = try readVarint(u7, section.reader()) },
+                                    .I32 => .{ .I32 = try readVarint(i32, body.reader()) },
+                                    .U32 => .{ .U32 = try readVarint(u32, body.reader()) },
+                                    .I64 => .{ .I64 = try readVarint(i64, body.reader()) },
+                                    .U64 => .{ .U64 = try readVarint(u64, body.reader()) },
+                                    .F32 => .{ .F64 = @bitCast(f32, try body.reader().readIntLittle(i32)) },
+                                    .F64 => .{ .F64 = @bitCast(f64, try body.reader().readIntLittle(i64)) },
+                                    .Type => .{ .I64 = try readVarint(u7, body.reader()) },
                                     .U32z => .{
                                         .U32z = .{
-                                            .data = try readVarint(u32, section.reader()),
-                                            .reserved = try section.reader().readByte(),
+                                            .data = try readVarint(u32, body.reader()),
+                                            .reserved = try body.reader().readByte(),
                                         },
                                     },
                                     .Mem => .{
                                         .Mem = .{
-                                            .align_ = try readVarint(u32, section.reader()),
-                                            .offset = try readVarint(u32, section.reader()),
+                                            .align_ = try readVarint(u32, body.reader()),
+                                            .offset = try readVarint(u32, body.reader()),
                                         },
                                     },
                                     .Array => blk: {
-                                        const target_count = try readVarint(u32, section.reader());
+                                        const target_count = try readVarint(u32, body.reader());
                                         const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
 
                                         const data = try result.arena.allocator.alloc(u32, size);
                                         for (data) |*item| {
-                                            item.* = try readVarint(u32, section.reader());
+                                            item.* = try readVarint(u32, body.reader());
                                         }
                                         break :blk .{
                                             .Array = .{
@@ -490,6 +487,8 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                             });
                         }
                     };
+
+                    try expectEos(body.reader());
                 }
                 try expectEos(section.reader());
             },
