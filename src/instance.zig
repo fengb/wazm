@@ -74,7 +74,8 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         };
     }
 
-    var memory = try Memory.init(allocator, context, @intCast(u16, module.memory[0].limits.initial));
+    const initial = if (module.memory.len > 0) @intCast(u16, module.memory[0].limits.initial) else 0;
+    var memory = try Memory.init(allocator, context, initial);
     errdefer memory.deinit();
 
     for (module.data) |data| {
