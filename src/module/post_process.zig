@@ -171,6 +171,16 @@ pub fn StackLedger(comptime T: type) type {
             };
         }
 
+        pub fn format(self: Self, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.writeAll("StackLedger(");
+            var iter = self.top;
+            while (iter) |node| {
+                try writer.print(", {}", .{node.data});
+                iter = node.prev;
+            }
+            try writer.writeAll(")");
+        }
+
         pub fn reset(self: *Self, size: usize) !void {
             self.top = null;
             self.list.shrinkRetainingCapacity(0);

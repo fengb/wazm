@@ -88,13 +88,8 @@ pub const Fixval = extern union {
     F64: f64,
     V128: i128, // TODO: make this a real vector
 
-    pub fn format(
-        self: Fixval,
-        comptime fmt: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("Fixval(0x{x})", .{self.V128});
+    pub fn format(self: Fixval, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Fixval(0x{x})", .{@bitCast(u128, self)});
     }
 
     pub const Void = extern struct {
@@ -151,6 +146,10 @@ pub const Arg = extern union {
     U32z: U32z,
     Mem: Mem,
     Array: Array,
+
+    pub fn format(self: Arg, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Arg(0x{x})", .{@bitCast(u128, self)});
+    }
 
     pub const Kind = enum {
         Void,
