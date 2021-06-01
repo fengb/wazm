@@ -455,7 +455,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                     .U64 => .{ .U64 = try readVarint(u64, body.reader()) },
                                     .F32 => .{ .F64 = @bitCast(f32, try body.reader().readIntLittle(i32)) },
                                     .F64 => .{ .F64 = @bitCast(f64, try body.reader().readIntLittle(i64)) },
-                                    .Type => .{ .I64 = try readVarint(u7, body.reader()) },
+                                    .Type => .{ .Type = @intToEnum(Op.Arg.Type, try readVarint(u7, body.reader())) },
                                     .U32z => .{
                                         .U32z = .{
                                             .data = try readVarint(u32, body.reader()),
