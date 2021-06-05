@@ -51,7 +51,7 @@ pub fn init(module: *Module) !PostProcess {
         try stack_validator.process(import_funcs.items, module, f);
 
         // Fill in jump targets
-        const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f + import_funcs.items.len, .types = stack_validator.types.list.items };
+        const jump_targeter = JumpTargeter{ .jumps = &jumps, .func_idx = f + import_funcs.items.len, .types = stack_validator.types };
 
         for (code.body) |instr, instr_idx| {
             switch (instr.op) {
@@ -108,7 +108,7 @@ pub fn init(module: *Module) !PostProcess {
 const JumpTargeter = struct {
     jumps: *InstrJumps,
     func_idx: usize,
-    types: []const ?StackLedger(Module.Type.Value).Node,
+    types: StackLedger(Module.Type.Value),
 
     fn add(self: JumpTargeter, block_type: Module.Type.Block, args: struct {
         from: usize,
@@ -117,14 +117,14 @@ const JumpTargeter = struct {
     }) !void {
         // stackDepth reflects the status *after* execution
         // and we're jumping to right *before* the instruction
-        const target_depth = stackDepth(self.types[args.target - 1]);
+        const target_depth = self.types.depthOf(args.target - 1);
         try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, args.from) },
             .{
                 .one = .{
                     .has_value = block_type != .Empty,
                     .addr = @intCast(u32, args.target),
-                    .stack_unroll = stackDepth(self.types[args.from]) + args.stack_adjust - target_depth,
+                    .stack_unroll = self.types.depthOf(args.from) + args.stack_adjust - target_depth,
                 },
             },
         );
@@ -132,22 +132,12 @@ const JumpTargeter = struct {
 
     fn addMany(self: JumpTargeter, from_idx: usize, targets: []JumpTarget) !void {
         for (targets) |*target| {
-            target.stack_unroll = stackDepth(self.types[from_idx]) - stackDepth(self.types[target.addr]);
+            target.stack_unroll = self.types.depthOf(from_idx) - self.types.depthOf(target.addr);
         }
         try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, from_idx) },
             .{ .many = targets.ptr },
         );
-    }
-
-    fn stackDepth(node: ?StackLedger(Module.Type.Value).Node) u32 {
-        var iter = &(node orelse return 0);
-        var result: u32 = 1;
-        while (iter.prev) |prev| {
-            result += 1;
-            iter = prev;
-        }
-        return result;
     }
 };
 
@@ -169,6 +159,16 @@ pub fn StackLedger(comptime T: type) type {
                 .top = null,
                 .list = std.ArrayList(?Node).init(allocator),
             };
+        }
+
+        pub fn depthOf(self: Self, idx: usize) u32 {
+            var iter = &(self.list.items[idx] orelse return 0);
+            var result: u32 = 1;
+            while (iter.prev) |prev| {
+                result += 1;
+                iter = prev;
+            }
+            return result;
         }
 
         pub fn format(self: Self, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) !void {
