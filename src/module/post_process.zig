@@ -248,17 +248,14 @@ const StackValidator = struct {
         const func_type = module.@"type"[@enumToInt(func.type_idx)];
         const code = module.code[code_idx];
 
-        try self.types.reset(code.body.len);
         try self.blocks.reset(code.body.len);
-
         for (code.body) |instr, instr_idx| {
+            defer self.blocks.seal(instr_idx);
+
             const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
                 // Block operations
                 .block, .loop, .@"if" => {
-                    if (instr.op == .@"if") {
-                        try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32});
-                    }
                     const result_type = instr.arg.Type;
                     self.blocks.pushAt(instr_idx, switch (result_type) {
                         .Void => .Empty,
@@ -274,15 +271,30 @@ const StackValidator = struct {
                     if (code.body[block_idx].op != .@"if") {
                         return error.MismatchElseWithoutIf;
                     }
-                    // This is the reason blocks and types must be interlaced. :(
-                    if (top != .Empty) {
-                        _ = try self.types.pop(instr_idx);
-                    }
                     self.blocks.pushAt(instr_idx, top);
                 },
                 .end => _ = try self.blocks.pop(instr_idx),
+                else => {},
+            }
+        }
+        if (self.blocks.top != null) {
+            return error.BlockMismatch;
+        }
 
-                // Type operations
+        try self.types.reset(code.body.len);
+        for (code.body) |instr, instr_idx| {
+            defer self.types.seal(instr_idx);
+
+            const op_meta = Op.Meta.of(instr.op);
+            switch (instr.op) {
+                .@"if" => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
+                .@"else" => {
+                    const if_block = self.blocks.list.items[instr_idx - 1].?;
+                    if (if_block.data != .Empty) {
+                        _ = try self.types.pop(instr_idx);
+                    }
+                },
+
                 .call => {
                     // TODO: validate these indexes
                     const func_idx = instr.arg.U32;
@@ -354,9 +366,6 @@ const StackValidator = struct {
                     }
                 },
             }
-
-            self.types.seal(instr_idx);
-            self.blocks.seal(instr_idx);
         }
 
         if (func_type.return_type) |return_type| {
@@ -365,10 +374,6 @@ const StackValidator = struct {
 
         if (self.types.top != null) {
             return error.StackMismatch;
-        }
-
-        if (self.blocks.top != null) {
-            return error.BlockMismatch;
         }
     }
 
