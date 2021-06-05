@@ -4,12 +4,12 @@
 
 | | |
 |-|-|
-| Bytecode parser | partial |
+| Bytecode parser | 🐛 |
 | Bytecode output | ❌ |
-| WAT parser | partial |
+| WAT parser | 🚧 |
 | WAT output | ❌ |
-| Execution | ❌ |
-| WASI | ❌ |
+| Execution | 🐛 |
+| WASI | 🚧 |
 
 ```bash
 $ git clone https://github.com/fengb/wazm.git
