@@ -252,7 +252,6 @@ const StackValidator = struct {
         for (code.body) |instr, instr_idx| {
             defer self.blocks.seal(instr_idx);
 
-            const op_meta = Op.Meta.of(instr.op);
             switch (instr.op) {
                 // Block operations
                 .block, .loop, .@"if" => {
@@ -282,11 +281,33 @@ const StackValidator = struct {
         }
 
         try self.types.reset(code.body.len);
+        var terminating_block: ?StackLedger(Module.Type.Block).Node = null;
         for (code.body) |instr, instr_idx| {
             defer self.types.seal(instr_idx);
 
-            const op_meta = Op.Meta.of(instr.op);
+            if (terminating_block) |block| {
+                if (instr.op == .end) {
+                    const unroll_amount = self.types.depthOf(instr_idx - 1) - self.types.depthOf(block.start_idx);
+
+                    var i: usize = 0;
+                    while (i < unroll_amount) : (i += 1) {
+                        _ = self.types.pop(instr_idx) catch unreachable;
+                    }
+
+                    terminating_block = null;
+                }
+                // TODO: do I need to detect valid instruction
+                continue;
+            }
+
             switch (instr.op) {
+                .@"return", .br, .br_table, .@"unreachable" => {
+                    if (instr.op == .br_table) {
+                        try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32});
+                    }
+                    terminating_block = self.blocks.list.items[instr_idx];
+                },
+
                 .@"if" => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
                 .@"else" => {
                     const if_block = self.blocks.list.items[instr_idx - 1].?;
@@ -354,9 +375,8 @@ const StackValidator = struct {
                 // Drops *any* value, no check needed
                 .drop => _ = try self.types.pop(instr_idx),
 
-                .br_table => try self.types.checkPops(instr_idx, &.{.I32}),
-
                 else => {
+                    const op_meta = Op.Meta.of(instr.op);
                     for (op_meta.pop) |pop| {
                         try self.types.checkPops(instr_idx, &.{asValue(pop)});
                     }
@@ -551,6 +571,21 @@ test "valid local idx" {
         \\(module
         \\  (func (param i32) (result i32)
         \\  local.get 0))
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    _ = try PostProcess.init(&module);
+}
+
+test "valid br flushing the stack" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func
+        \\    block         ;; 0
+        \\      i32.const 1 ;; 1
+        \\      br 0        ;; 2
+        \\      i32.const 2 ;; 3
+        \\    end))         ;; 4
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
