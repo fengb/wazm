@@ -273,6 +273,7 @@ const StackValidator = struct {
                     self.blocks.pushAt(instr_idx, top);
                 },
                 .end => _ = try self.blocks.pop(instr_idx),
+                // TODO: catch invalid br/br_table/br_if
                 else => {},
             }
         }
@@ -281,20 +282,18 @@ const StackValidator = struct {
         }
 
         try self.types.reset(code.body.len);
-        var terminating_block: ?StackLedger(Module.Type.Block).Node = null;
+        var terminating_block_idx: ?usize = null;
         for (code.body) |instr, instr_idx| {
             defer self.types.seal(instr_idx);
 
-            if (terminating_block) |block| {
+            if (terminating_block_idx) |block_idx| {
                 if (instr.op == .end) {
-                    const unroll_amount = self.types.depthOf(instr_idx - 1) - self.types.depthOf(block.start_idx);
+                    const unroll_amount = self.types.depthOf(instr_idx - 1) - self.types.depthOf(block_idx);
 
                     var i: usize = 0;
                     while (i < unroll_amount) : (i += 1) {
                         _ = self.types.pop(instr_idx) catch unreachable;
                     }
-
-                    terminating_block = null;
                 }
                 // TODO: do I need to detect valid instruction
                 continue;
@@ -305,7 +304,7 @@ const StackValidator = struct {
                     if (instr.op == .br_table) {
                         try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32});
                     }
-                    terminating_block = self.blocks.list.items[instr_idx];
+                    terminating_block_idx = if (self.blocks.list.items[instr_idx]) |block| block.start_idx else std.math.maxInt(usize);
                 },
 
                 .@"if" => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
@@ -388,12 +387,14 @@ const StackValidator = struct {
             }
         }
 
-        if (func_type.return_type) |return_type| {
-            try self.types.checkPops(code.body.len, &.{return_type});
-        }
+        if (terminating_block_idx == null) {
+            if (func_type.return_type) |return_type| {
+                try self.types.checkPops(code.body.len, &.{return_type});
+            }
 
-        if (self.types.top != null) {
-            return error.StackMismatch;
+            if (self.types.top != null) {
+                return error.StackMismatch;
+            }
         }
     }
 
@@ -586,6 +587,19 @@ test "valid br flushing the stack" {
         \\      br 0        ;; 2
         \\      i32.const 2 ;; 3
         \\    end))         ;; 4
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    _ = try PostProcess.init(&module);
+}
+
+test "valid return flushing the stack" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func
+        \\    i32.const 1   ;; 0
+        \\    return        ;; 1
+        \\    i32.const 2)) ;; 2
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
