@@ -219,10 +219,13 @@ const imports = struct {
 
         for (strings) |string| {
             try mem.set(target_, target_buf_);
+            // TODO: normalize pointer math
+            target_.addr += 4;
 
             try mem.setMany(target_buf_, string);
             target_buf_.addr += @intCast(u32, string.len);
             try mem.set(target_buf_, 0);
+            // TODO: normalize pointer math
             target_buf_.addr += 1;
         }
         return Errno.success;
