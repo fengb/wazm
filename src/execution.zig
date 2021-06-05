@@ -160,7 +160,10 @@ pub fn jump(self: *Execution, table_idx: ?u32) void {
         null;
 
     _ = self.popN(target.stack_unroll);
-    self.current_frame.instr = target.addr;
+    // Jumps to 1 after the target.
+    // If target == "end", this skips a noop and is faster.
+    // If target == "else", this correctly skips over the annoying check.
+    self.current_frame.instr = target.addr + 1;
 
     if (result) |value| {
         self.push(Op.Fixval, value) catch unreachable;

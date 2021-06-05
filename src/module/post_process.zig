@@ -90,8 +90,7 @@ pub fn init(module: *Module) !PostProcess {
                     const block = stack_validator.blocks.list.items[instr_idx].?;
                     try jump_targeter.add(block.data, .{
                         .from = instr_idx,
-                        // "if" jumps to *after* the corresponding else
-                        .target = block.end_idx + 1,
+                        .target = block.end_idx,
                     });
                 },
                 else => {},
@@ -117,7 +116,7 @@ const JumpTargeter = struct {
     }) !void {
         // stackDepth reflects the status *after* execution
         // and we're jumping to right *before* the instruction
-        const target_depth = self.types.depthOf(args.target - 1);
+        const target_depth = self.types.depthOf(args.target);
         try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, args.from) },
             .{
@@ -523,8 +522,7 @@ test "if/else locations" {
     const process = try PostProcess.init(&module);
 
     const jump_if = process.jumps.get(.{ .func = 0, .instr = 1 }) orelse return error.JumpNotFound;
-    // Note that if's jump target is *after* the else instruction
-    try std.testing.expectEqual(@as(usize, 4), jump_if.one.addr);
+    try std.testing.expectEqual(@as(usize, 3), jump_if.one.addr);
     try std.testing.expectEqual(@as(usize, 0), jump_if.one.stack_unroll);
 
     const jump_else = process.jumps.get(.{ .func = 0, .instr = 3 }) orelse return error.JumpNotFound;

@@ -398,7 +398,7 @@ const Impl = struct {
     }
 
     pub fn @"0x05 else"(ctx: *Execution, arg: Void, pop: *Void) void {
-        // If we are executing this instruction, it means the `if` fired, so we should skip until the end
+        // If we are executing this instruction, it means the `if` block was executed, so we should skip until the end
         ctx.jump(null);
     }
 
