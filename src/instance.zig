@@ -85,7 +85,7 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
             .global_get => @panic("I don't know"),
             else => unreachable,
         };
-        const addr = try Memory.P(u8).init(@enumToInt(data.index)).offset(@intCast(u32, offset));
+        const addr = Memory.P(u8).init(@enumToInt(data.index) + @intCast(u32, offset));
         try memory.setMany(addr, data.data);
     }
 

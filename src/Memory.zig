@@ -72,7 +72,7 @@ fn pageChunk(self: Memory, idx: u32) ![]u8 {
 }
 
 pub fn get(self: Memory, ptr: anytype) !@TypeOf(ptr).Pointee {
-    return self.load(@TypeOf(ptr).Pointee, ptr.addr, 0);
+    return self.load(@TypeOf(ptr).Pointee, @enumToInt(ptr), 0);
 }
 
 pub fn iterBytes(self: Memory, ptr: P(u8), size: u32) ByteIterator {
@@ -93,7 +93,7 @@ const ByteIterator = struct {
             return null;
         }
 
-        const bytes = try iter.memory.pageChunk(iter.ptr.addr);
+        const bytes = try iter.memory.pageChunk(@enumToInt(iter.ptr));
 
         const size = @intCast(u17, bytes.len);
         if (size >= iter.remaining) {
@@ -101,34 +101,40 @@ const ByteIterator = struct {
             return bytes[0..iter.remaining];
         } else {
             iter.remaining -= size;
-            iter.ptr = try iter.ptr.offset(size);
+            iter.ptr = try iter.ptr.add(size);
             return bytes;
         }
     }
 };
 
 pub fn set(self: Memory, ptr: anytype, value: @TypeOf(ptr).Pointee) !void {
-    return self.store(@TypeOf(ptr).Pointee, ptr.addr, 0, value);
+    return self.store(@TypeOf(ptr).Pointee, @enumToInt(ptr), 0, value);
 }
 
 pub fn setMany(self: Memory, ptr: anytype, values: []const @TypeOf(ptr).Pointee) !void {
     for (values) |value, i| {
-        try self.set(try ptr.offset(@intCast(u32, i)), value);
+        try self.set(try ptr.add(@intCast(u32, i)), value);
     }
 }
 
 pub fn P(comptime T: type) type {
-    return extern struct {
-        addr: u32,
+    return enum(u32) {
+        _,
 
+        const Self = @This();
         pub const Pointee = T;
+        pub const stride = @sizeOf(T);
 
-        pub fn init(addr: u32) @This() {
-            return .{ .addr = addr };
+        pub fn init(addr: u32) Self {
+            return @intToEnum(Self, addr);
         }
 
-        pub fn offset(self: @This(), change: u32) !@This() {
-            return @This(){ .addr = try std.math.add(u32, self.addr, change) };
+        pub fn add(self: Self, change: u32) !Self {
+            return init(try std.math.add(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
+        }
+
+        pub fn sub(self: Self, change: u32) !Self {
+            return init(try std.math.sub(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
         }
     };
 }
@@ -149,8 +155,8 @@ test "get/set" {
 
     try std.testing.expectEqual(@as(u16, 1), mem.pageCount());
 
-    const ptr1 = P(u32){ .addr = 1234 };
-    const ptr2 = P(u32){ .addr = 4321 };
+    const ptr1 = P(u32).init(1234);
+    const ptr2 = P(u32).init(4321);
     try mem.set(ptr1, 69);
     try mem.set(ptr2, 420);
 

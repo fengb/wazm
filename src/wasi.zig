@@ -181,7 +181,7 @@ const imports = struct {
         var i: u32 = 0;
         var osi: u32 = 0;
         while (i < iovs_len) : (i += 1) {
-            const iov = try mem.get(try iovs.offset(i));
+            const iov = try mem.get(try iovs.add(i));
             var iter = mem.iterBytes(iov.buf, iov.len);
             while (try iter.next()) |bytes| {
                 os_vec[osi] = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
@@ -219,14 +219,12 @@ const imports = struct {
 
         for (strings) |string| {
             try mem.set(target_, target_buf_);
-            // TODO: normalize pointer math
-            target_.addr += 4;
+            target_ = try target_.add(1);
 
             try mem.setMany(target_buf_, string);
-            target_buf_.addr += @intCast(u32, string.len);
+            target_buf_ = try target_buf_.add(@intCast(u32, string.len));
             try mem.set(target_buf_, 0);
-            // TODO: normalize pointer math
-            target_buf_.addr += 1;
+            target_buf_ = try target_buf_.add(1);
         }
         return Errno.success;
     }
