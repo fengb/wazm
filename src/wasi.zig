@@ -67,6 +67,7 @@ const Fd = enum(u32) {
     _,
 };
 
+/// A region of memory for scatter/gather reads.
 const Iovec = extern struct {
     buf: P(u8),
     len: Size,
@@ -112,6 +113,9 @@ pub const Errno = enum(u32) {
 
     /// No space left on device.
     nospc = 51,
+
+    /// Function not supported.
+    nosys = 52,
 
     /// Broken pipe.
     pipe = 64,
@@ -280,6 +284,13 @@ const imports = struct {
         const wasi = mem.ext(Wasi);
         wasi.exit_code = rval;
         return error.Unreachable;
+    }
+
+    pub fn sched_yield(mem: *Memory) Errno {
+        std.os.sched_yield() catch |err| switch (err) {
+            error.SystemCannotYield => return Errno.nosys,
+        };
+        return Errno.success;
     }
 };
 
