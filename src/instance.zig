@@ -12,7 +12,7 @@ allocator: *std.mem.Allocator,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
-globals: []Value,
+globals: []Op.Fixval,
 
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
@@ -63,14 +63,15 @@ pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_v
         });
     }
 
-    var globals = try allocator.alloc(Value, module.global.len);
+    var globals = try allocator.alloc(Op.Fixval, module.global.len);
+    errdefer allocator.free(globals);
 
     for (module.global) |global, i| {
-        globals[i] = switch (global.@"type".content_type) {
-            .I32 => Value{ .I32 = global.init.i32_const },
-            .I64 => Value{ .I64 = global.init.i64_const },
-            .F32 => Value{ .F32 = global.init.f32_const },
-            .F64 => Value{ .F64 = global.init.f64_const },
+        globals[i] = switch (global.type.content_type) {
+            .I32 => .{ .I32 = global.init.i32_const },
+            .I64 => .{ .I64 = global.init.i64_const },
+            .F32 => .{ .F32 = global.init.f32_const },
+            .F64 => .{ .F64 = global.init.f64_const },
         };
     }
 
@@ -157,6 +158,16 @@ pub fn call(self: *Instance, name: []const u8, params: anytype) !?Value {
     } else {
         return null;
     }
+}
+
+pub fn getGlobal(self: Instance, idx: usize) Value {
+    const raw = self.globals[idx];
+    return switch (self.module.global[idx].type.content_type) {
+        .I32 => Value{ .I32 = raw.I32 },
+        .I64 => Value{ .I64 = raw.I64 },
+        .F32 => Value{ .F32 = raw.F32 },
+        .F64 => Value{ .F64 = raw.F64 },
+    };
 }
 
 pub const Value = union(Module.Type.Value) {

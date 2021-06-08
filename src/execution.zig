@@ -87,21 +87,11 @@ fn localOffset(self: Execution) usize {
 }
 
 pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
-    return switch (self.instance.globals[idx]) {
-        .I32 => |val| .{ .I32 = val },
-        .I64 => |val| .{ .I64 = val },
-        .F32 => |val| .{ .F32 = val },
-        .F64 => |val| .{ .F64 = val },
-    };
+    return self.instance.globals[idx];
 }
 
-pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
-    switch (self.instance.globals[idx]) {
-        .I32 => |*val| val.* = value.I32,
-        .I64 => |*val| val.* = value.I64,
-        .F32 => |*val| val.* = value.F32,
-        .F64 => |*val| val.* = value.F64,
-    }
+pub fn setGlobal(self: Execution, idx: usize, value: Op.Fixval) void {
+    self.instance.globals[idx] = value;
 }
 
 pub fn initCall(self: *Execution, func_id: usize) !void {
