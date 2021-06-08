@@ -114,8 +114,6 @@ const JumpTargeter = struct {
         target: usize,
         stack_adjust: u32 = 0,
     }) !void {
-        // stackDepth reflects the status *after* execution
-        // and we're jumping to right *before* the instruction
         const target_depth = self.types.depthOf(args.target);
         try self.jumps.putNoClobber(
             .{ .func = @intCast(u32, self.func_idx), .instr = @intCast(u32, args.from) },
