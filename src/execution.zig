@@ -33,24 +33,17 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
     }
 
     try ctx.initCall(func_id);
+    if (ctx.current_frame.isTerminus()) {
+        return switch (ctx.stack_top) {
+            0 => null,
+            1 => ctx.stack[0],
+            else => unreachable,
+        };
+    }
 
     while (true) {
         const func = ctx.funcs[ctx.current_frame.func];
-        // TODO: investigate imported calling another imported
-        if (ctx.current_frame.instr == 0 and func.kind == .imported) {
-            const result = try func.kind.imported.func(&ctx, ctx.getLocals(0, func.params.len));
-
-            _ = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
-            }
-        } else if (ctx.current_frame.instr < func.kind.instrs.len) {
+        if (ctx.current_frame.instr < func.kind.instrs.len) {
             const instr = func.kind.instrs[ctx.current_frame.instr];
             ctx.current_frame.instr += 1;
 
@@ -113,18 +106,28 @@ pub fn setGlobal(self: Execution, idx: usize, value: anytype) void {
 
 pub fn initCall(self: *Execution, func_id: usize) !void {
     const func = self.funcs[func_id];
-    // TODO: assert params on the callstack are correct
-    for (func.locals) |local| {
-        try self.push(u128, 0);
+    if (func.kind == .imported) {
+        // TODO: investigate imported calling another imported
+        const params = self.popN(func.params.len);
+        const result = try func.kind.imported.func(self, params);
+
+        if (result) |res| {
+            self.push(Op.Fixval, res) catch unreachable;
+        }
+    } else {
+        // TODO: assert params on the callstack are correct
+        for (func.locals) |local| {
+            try self.push(u128, 0);
+        }
+
+        try self.push(Frame, self.current_frame);
+
+        self.current_frame = .{
+            .func = @intCast(u32, func_id),
+            .instr = 0,
+            .stack_begin = @intCast(u32, self.stack_top),
+        };
     }
-
-    try self.push(Frame, self.current_frame);
-
-    self.current_frame = .{
-        .func = @intCast(u32, func_id),
-        .instr = 0,
-        .stack_begin = @intCast(u32, self.stack_top),
-    };
 }
 
 pub fn unwindCall(self: *Execution) ?Op.Fixval {
