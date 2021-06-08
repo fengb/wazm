@@ -312,6 +312,14 @@ const StackValidator = struct {
                     }
                 },
 
+                .end => {
+                    const block = self.blocks.list.items[instr_idx - 1].?;
+                    const extra = @boolToInt(block.data != .Empty);
+                    if (self.types.depthOf(block.start_idx) != self.types.depthOf(instr_idx - 1) - extra) {
+                        return error.StackMismatch;
+                    }
+                },
+
                 .call => {
                     // TODO: validate these indexes
                     const func_idx = instr.arg.U32;
