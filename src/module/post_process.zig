@@ -285,6 +285,7 @@ const StackValidator = struct {
 
             if (terminating_block_idx) |block_idx| {
                 if (instr.op == .end) {
+                    terminating_block_idx = null;
                     const unroll_amount = self.types.depthOf(instr_idx - 1) - self.types.depthOf(block_idx);
 
                     var i: usize = 0;
@@ -304,7 +305,6 @@ const StackValidator = struct {
                     terminating_block_idx = if (self.blocks.list.items[instr_idx]) |block| block.start_idx else std.math.maxInt(usize);
                 },
 
-                .@"if" => try self.types.checkPops(instr_idx, &.{Module.Type.Value.I32}),
                 .@"else" => {
                     const if_block = self.blocks.list.items[instr_idx - 1].?;
                     if (if_block.data != .Empty) {
@@ -596,6 +596,21 @@ test "valid return flushing the stack" {
         \\    i32.const 1   ;; 0
         \\    return        ;; 1
         \\    i32.const 2)) ;; 2
+    );
+    var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
+    defer module.deinit();
+    _ = try PostProcess.init(&module);
+}
+
+test "return a value from block" {
+    var fbs = std.io.fixedBufferStream(
+        \\(module
+        \\  (func (result i32)
+        \\    block          ;; 0
+        \\      i32.const 1  ;; 1
+        \\      return       ;; 2
+        \\    end            ;; 3
+        \\    i32.const 42)) ;; 4
     );
     var module = try Wat.parseNoValidate(std.testing.allocator, fbs.reader());
     defer module.deinit();
