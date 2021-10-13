@@ -16,6 +16,8 @@ stack: []Op.Fixval,
 stack_top: usize,
 current_frame: Frame = Frame.terminus(),
 
+result: Op.WasmTrap!?Op.Fixval,
+
 pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op.Fixval) !?Op.Fixval {
     var ctx = Execution{
         .memory = &instance.memory,
@@ -25,6 +27,8 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
 
         .stack = stack,
         .stack_top = 0,
+
+        .result = undefined,
     };
 
     // initCall assumes the params are already pushed onto the stack
@@ -41,31 +45,54 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         };
     }
 
-    while (true) {
-        const func = ctx.funcs[ctx.current_frame.func];
-        if (ctx.current_frame.instr < func.kind.instrs.len) {
-            const instr = func.kind.instrs[ctx.current_frame.instr];
-            ctx.current_frame.instr += 1;
+    @call(.{ .modifier = .always_inline }, tailDispatch, .{&ctx});
+    return ctx.result;
+}
 
-            const pops = ctx.popN(instr.pop_len);
+fn tailDispatch(self: *Execution) void {
+    const func = self.funcs[self.current_frame.func];
+    if (self.current_frame.instr < func.kind.instrs.len) {
+        return @call(.{ .modifier = .always_tail }, tailStep, .{self});
+    } else {
+        const result = self.unwindCall();
 
-            const result = try Op.step(instr.op, &ctx, instr.arg, pops.ptr);
-            if (result) |res| {
-                try ctx.push(@TypeOf(res), res);
-            }
+        if (self.current_frame.isTerminus()) {
+            std.debug.assert(self.stack_top == 0);
+            self.result = result;
+            return;
         } else {
-            const result = ctx.unwindCall();
-
-            if (ctx.current_frame.isTerminus()) {
-                std.debug.assert(ctx.stack_top == 0);
-                return result;
-            } else {
-                if (result) |res| {
-                    ctx.push(Op.Fixval, res) catch unreachable;
-                }
+            if (result) |res| {
+                self.push(Op.Fixval, res) catch unreachable;
             }
         }
+        return @call(.{ .modifier = .always_tail }, tailDispatch, .{self});
     }
+}
+
+fn tailStep(self: *Execution) void {
+    const func = self.funcs[self.current_frame.func];
+    const instr = func.kind.instrs[self.current_frame.instr];
+    self.current_frame.instr += 1;
+
+    const pops = self.popN(instr.pop_len);
+
+    const result = @call(
+        .{ .modifier = .always_inline },
+        Op.step,
+        .{ instr.op, self, instr.arg, pops.ptr },
+    ) catch |err| {
+        self.result = err;
+        return;
+    };
+
+    if (result) |res| {
+        self.push(@TypeOf(res), res) catch |err| {
+            self.result = err;
+            return;
+        };
+    }
+
+    return @call(.{ .modifier = .always_inline }, tailDispatch, .{self});
 }
 
 pub fn getLocal(self: Execution, idx: usize) Op.Fixval {
@@ -105,8 +132,9 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
             self.push(Op.Fixval, res) catch unreachable;
         }
     } else {
-        // TODO: assert params on the callstack are correct
         for (func.locals) |local| {
+            // TODO: assert params on the callstack are correct
+            _ = local;
             try self.push(u128, 0);
         }
 
