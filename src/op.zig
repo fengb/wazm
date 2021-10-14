@@ -3,10 +3,14 @@ const Execution = @import("execution.zig");
 
 pub const Meta = struct {
     code: std.wasm.Opcode,
-    name: []const u8,
+    func_name: []const u8,
     arg_kind: Arg.Kind,
     push: ?Stack.Change,
     pop: []const Stack.Change,
+
+    pub fn name(self: Meta) []const u8 {
+        return self.func_name[5..];
+    }
 
     const sparse = sparse: {
         @setEvalBranchQuota(10000);
@@ -35,7 +39,7 @@ pub const Meta = struct {
 
             result[i] = .{
                 .code = parseOpcode(decl.name) catch @compileError("Not a known hex: " ++ decl.name[0..4]),
-                .name = decl.name[5..],
+                .func_name = decl.name,
                 .arg_kind = Arg.Kind.init(arg_type),
                 .push = Stack.Change.initPush(push_type),
                 .pop = switch (pop_ref_type) {
@@ -303,44 +307,44 @@ pub const WasmTrap = error{
     IndirectCallTypeMismatch,
 };
 
-const hex = "0123456789ABCDEF";
-
 pub fn step(op: std.wasm.Opcode, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixval {
-    const raw_code = @enumToInt(op);
-    var prefix_search = [4]u8{ '0', 'x', hex[raw_code / 16], hex[raw_code % 16] };
-
     // TODO: test out function pointers for performance comparison
     // LLVM optimizes this inline for / mem.eql as a jump table
     // Please benchmark if we try to to optimize this.
-    inline for (publicFunctions(Impl)) |decl| {
-        if (std.mem.eql(u8, &prefix_search, decl.name[0..4])) {
-            const args = @typeInfo(decl.data.Fn.fn_type).Fn.args;
-            const result = @field(Impl, decl.name)(
-                ctx,
-                switch (args[1].arg_type.?) {
-                    Arg.Type => arg.Type,
-                    else => @bitCast(args[1].arg_type.?, arg),
-                },
-                @ptrCast(args[2].arg_type.?, pop),
-            );
-
-            const result_value = if (@typeInfo(@TypeOf(result)) == .ErrorUnion) try result else result;
-
-            return switch (@TypeOf(result_value)) {
-                void => null,
-                i32 => Fixval{ .I32 = result_value },
-                u32 => Fixval{ .U32 = result_value },
-                i64 => Fixval{ .I64 = result_value },
-                u64 => Fixval{ .U64 = result_value },
-                f32 => Fixval{ .F32 = result_value },
-                f64 => Fixval{ .F64 = result_value },
-                Fixval => result_value,
-                else => @compileError("Op return unimplemented: " ++ @typeName(@TypeOf(result_value))),
-            };
+    inline for (Meta.sparse) |meta| {
+        if (meta.code == op) {
+            return stepName(meta.func_name, ctx, arg, pop);
         }
     }
 
     unreachable; // Op parse error
+}
+
+pub inline fn stepName(comptime func_name: []const u8, ctx: *Execution, arg: Arg, pop: [*]Fixval) WasmTrap!?Fixval {
+    const func = @field(Impl, func_name);
+    const args = @typeInfo(@TypeOf(func)).Fn.args;
+    const result = func(
+        ctx,
+        switch (args[1].arg_type.?) {
+            Arg.Type => arg.Type,
+            else => @bitCast(args[1].arg_type.?, arg),
+        },
+        @ptrCast(args[2].arg_type.?, pop),
+    );
+
+    const result_value = if (@typeInfo(@TypeOf(result)) == .ErrorUnion) try result else result;
+
+    return switch (@TypeOf(result_value)) {
+        void => null,
+        i32 => Fixval{ .I32 = result_value },
+        u32 => Fixval{ .U32 = result_value },
+        i64 => Fixval{ .I64 = result_value },
+        u64 => Fixval{ .U64 = result_value },
+        f32 => Fixval{ .F32 = result_value },
+        f64 => Fixval{ .F64 = result_value },
+        Fixval => result_value,
+        else => @compileError("Op return unimplemented: " ++ @typeName(@TypeOf(result_value))),
+    };
 }
 
 fn parseOpcode(name: []const u8) !std.wasm.Opcode {
