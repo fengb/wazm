@@ -45,54 +45,70 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         };
     }
 
-    @call(.{ .modifier = .always_inline }, tailDispatch, .{&ctx});
+    tailDispatch(&ctx, undefined, undefined);
     return ctx.result;
 }
 
-fn tailDispatch(self: *Execution) void {
+fn tailDispatch(self: *Execution, arg_0: u64, arg_1: u64) void {
     const func = self.funcs[self.current_frame.func];
-    if (self.current_frame.instr < func.kind.instrs.len) {
-        return @call(.{ .modifier = .always_tail }, tailStep, .{self});
-    } else {
-        const result = self.unwindCall();
-
-        if (self.current_frame.isTerminus()) {
-            std.debug.assert(self.stack_top == 0);
-            self.result = result;
-            return;
-        } else {
-            if (result) |res| {
-                self.push(Op.Fixval, res) catch unreachable;
-            }
-        }
-        return @call(.{ .modifier = .always_tail }, tailDispatch, .{self});
+    if (self.current_frame.instr >= func.kind.instrs.len) {
+        return @call(.{ .modifier = .always_tail }, tailUnwind, .{ self, undefined, undefined });
     }
-}
 
-fn tailStep(self: *Execution) void {
-    const func = self.funcs[self.current_frame.func];
     const instr = func.kind.instrs[self.current_frame.instr];
     self.current_frame.instr += 1;
 
-    const pops = self.popN(instr.pop_len);
-
-    const result = @call(
-        .{ .modifier = .always_inline },
-        Op.step,
-        .{ instr.op, self, instr.arg, pops.ptr },
-    ) catch |err| {
-        self.result = err;
-        return;
-    };
-
-    if (result) |res| {
-        self.push(@TypeOf(res), res) catch |err| {
-            self.result = err;
-            return;
-        };
+    // LLVM won't tail call this unless I manually split arg into registers :(
+    const args = @bitCast([2]u64, instr.arg);
+    inline for (Op.Meta.sparse) |meta| {
+        if (meta.code == instr.op) {
+            const Tail = TailWrap(meta.code);
+            const TAIL = std.builtin.CallOptions{ .modifier = .always_tail };
+            return @call(TAIL, Tail.call, .{ self, args[0], args[1] });
+        }
     }
+    unreachable;
+}
 
-    return @call(.{ .modifier = .always_inline }, tailDispatch, .{self});
+fn tailUnwind(self: *Execution, arg_0: u64, arg_1: u64) void {
+    const result = self.unwindCall();
+
+    if (self.current_frame.isTerminus()) {
+        std.debug.assert(self.stack_top == 0);
+        self.result = result;
+        return;
+    } else {
+        if (result) |res| {
+            self.push(Op.Fixval, res) catch unreachable;
+        }
+    }
+    return @call(.{ .modifier = .always_inline }, tailDispatch, .{ self, undefined, undefined });
+}
+
+fn TailWrap(comptime opcode: std.wasm.Opcode) type {
+    const meta = Op.Meta.of(opcode);
+    return struct {
+        fn call(ctx: *Execution, arg_0: u64, arg_1: u64) void {
+            const pops = ctx.popN(meta.pop.len);
+            const args = [_]u64{ arg_0, arg_1 };
+            const result = @call(
+                .{ .modifier = .always_inline },
+                Op.stepName,
+                .{ meta.func_name, ctx, @bitCast(Op.Arg, args), pops.ptr },
+            ) catch |err| {
+                ctx.result = err;
+                return;
+            };
+
+            if (result) |res| {
+                ctx.push(@TypeOf(res), res) catch |err| {
+                    ctx.result = err;
+                    return;
+                };
+            }
+            return @call(.{ .modifier = .always_inline }, tailDispatch, .{ ctx, undefined, undefined });
+        }
+    };
 }
 
 pub fn getLocal(self: Execution, idx: usize) Op.Fixval {

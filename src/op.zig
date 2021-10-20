@@ -12,7 +12,7 @@ pub const Meta = struct {
         return self.func_name[5..];
     }
 
-    const sparse = sparse: {
+    pub const sparse = sparse: {
         @setEvalBranchQuota(10000);
         const decls = publicFunctions(Impl);
         var result: [decls.len]Meta = undefined;
