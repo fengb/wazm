@@ -45,32 +45,30 @@ pub fn run(instance: *Instance, stack: []Op.Fixval, func_id: usize, params: []Op
         };
     }
 
-    tailDispatch(&ctx, undefined, undefined);
+    tailDispatch(&ctx, undefined);
     return ctx.result;
 }
 
-fn tailDispatch(self: *Execution, arg_0: u64, arg_1: u64) void {
+fn tailDispatch(self: *Execution, arg: Op.Arg) callconv(.C) void {
     const func = self.funcs[self.current_frame.func];
     if (self.current_frame.instr >= func.kind.instrs.len) {
-        return @call(.{ .modifier = .always_tail }, tailUnwind, .{ self, undefined, undefined });
+        return @call(.{ .modifier = .always_tail }, tailUnwind, .{ self, arg });
     }
 
     const instr = func.kind.instrs[self.current_frame.instr];
     self.current_frame.instr += 1;
 
-    // LLVM won't tail call this unless I manually split arg into registers :(
-    const args = @bitCast([2]u64, instr.arg);
     inline for (Op.Meta.sparse) |meta| {
         if (meta.code == instr.op) {
             const Tail = TailWrap(meta.code);
             const TAIL = std.builtin.CallOptions{ .modifier = .always_tail };
-            return @call(TAIL, Tail.call, .{ self, args[0], args[1] });
+            return @call(TAIL, Tail.call, .{ self, instr.arg });
         }
     }
     unreachable;
 }
 
-fn tailUnwind(self: *Execution, arg_0: u64, arg_1: u64) void {
+fn tailUnwind(self: *Execution, arg: Op.Arg) callconv(.C) void {
     const result = self.unwindCall();
 
     if (self.current_frame.isTerminus()) {
@@ -82,19 +80,18 @@ fn tailUnwind(self: *Execution, arg_0: u64, arg_1: u64) void {
             self.push(Op.Fixval, res) catch unreachable;
         }
     }
-    return @call(.{ .modifier = .always_inline }, tailDispatch, .{ self, undefined, undefined });
+    return @call(.{ .modifier = .always_inline }, tailDispatch, .{ self, arg });
 }
 
 fn TailWrap(comptime opcode: std.wasm.Opcode) type {
     const meta = Op.Meta.of(opcode);
     return struct {
-        fn call(ctx: *Execution, arg_0: u64, arg_1: u64) void {
+        fn call(ctx: *Execution, arg: Op.Arg) callconv(.C) void {
             const pops = ctx.popN(meta.pop.len);
-            const args = [_]u64{ arg_0, arg_1 };
             const result = @call(
                 .{ .modifier = .always_inline },
                 Op.stepName,
-                .{ meta.func_name, ctx, @bitCast(Op.Arg, args), pops.ptr },
+                .{ meta.func_name, ctx, arg, pops.ptr },
             ) catch |err| {
                 ctx.result = err;
                 return;
@@ -106,7 +103,7 @@ fn TailWrap(comptime opcode: std.wasm.Opcode) type {
                     return;
                 };
             }
-            return @call(.{ .modifier = .always_inline }, tailDispatch, .{ ctx, undefined, undefined });
+            return @call(.{ .modifier = .always_inline }, tailDispatch, .{ ctx, arg });
         }
     };
 }
