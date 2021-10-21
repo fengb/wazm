@@ -58,14 +58,17 @@ fn tailDispatch(self: *Execution, arg: Op.Arg) callconv(.C) void {
     const instr = func.kind.instrs[self.current_frame.instr];
     self.current_frame.instr += 1;
 
-    inline for (Op.Meta.sparse) |meta| {
-        if (meta.code == instr.op) {
+    const TailCalls = comptime blk: {
+        var result: [256]fn (self: *Execution, arg: Op.Arg) callconv(.C) void = undefined;
+        @setEvalBranchQuota(10000);
+        for (Op.Meta.sparse) |meta| {
             const Tail = TailWrap(meta.code);
-            const TAIL = std.builtin.CallOptions{ .modifier = .always_tail };
-            return @call(TAIL, Tail.call, .{ self, instr.arg });
+            result[@enumToInt(meta.code)] = Tail.call;
         }
-    }
-    unreachable;
+        break :blk result;
+    };
+
+    return @call(.{ .modifier = .always_tail }, TailCalls[@enumToInt(instr.op)], .{ self, instr.arg });
 }
 
 fn tailUnwind(self: *Execution, arg: Op.Arg) callconv(.C) void {
