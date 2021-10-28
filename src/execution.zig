@@ -112,21 +112,15 @@ fn TailWrap(comptime opcode: std.wasm.Opcode) type {
 }
 
 pub fn getLocal(self: Execution, idx: usize) Op.Fixval {
-    return self.stack[idx + self.localOffset()];
+    return self.stack[idx + self.current_frame.locals_begin];
 }
 
 pub fn getLocals(self: Execution, idx: usize, len: usize) []Op.Fixval {
-    return self.stack[idx + self.localOffset() ..][0..len];
+    return self.stack[idx + self.current_frame.locals_begin ..][0..len];
 }
 
 pub fn setLocal(self: Execution, idx: usize, value: Op.Fixval) void {
-    self.stack[idx + self.localOffset()] = value;
-}
-
-fn localOffset(self: Execution) usize {
-    const func = self.funcs[self.current_frame.func];
-    const return_frame = 1;
-    return self.current_frame.stack_begin - return_frame - func.params.len - func.locals.len;
+    self.stack[idx + self.current_frame.locals_begin] = value;
 }
 
 pub fn getGlobal(self: Execution, idx: usize) Op.Fixval {
@@ -148,6 +142,7 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
             self.push(Op.Fixval, res) catch unreachable;
         }
     } else {
+        const locals_begin = self.stack_top - func.params.len;
         for (func.locals) |local| {
             // TODO: assert params on the callstack are correct
             _ = local;
@@ -160,6 +155,7 @@ pub fn initCall(self: *Execution, func_id: usize) !void {
             .func = @intCast(u32, func_id),
             .instr = 0,
             .stack_begin = @intCast(u32, self.stack_top),
+            .locals_begin = @intCast(u32, locals_begin),
         };
     }
 }
@@ -240,7 +236,7 @@ const Frame = extern struct {
     func: u32,
     instr: u32,
     stack_begin: u32,
-    _pad: u32 = undefined,
+    locals_begin: u32,
 
     pub fn terminus() Frame {
         return @bitCast(Frame, @as(u128, 0));
