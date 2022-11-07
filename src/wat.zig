@@ -38,7 +38,7 @@ fn Sexpr(comptime Reader: type) type {
 
             const Next = union(enum) { Atom: []const u8, List: List };
 
-            pub fn next(self: List, allocator: *std.mem.Allocator) !?Next {
+            pub fn next(self: List, allocator: std.mem.Allocator) !?Next {
                 if (self.isAtEnd()) return null;
 
                 return switch (try self.ctx.scan()) {
@@ -48,7 +48,7 @@ fn Sexpr(comptime Reader: type) type {
                 };
             }
 
-            pub fn obtainAtom(self: List, allocator: *std.mem.Allocator) ![]u8 {
+            pub fn obtainAtom(self: List, allocator: std.mem.Allocator) ![]u8 {
                 return (try self.nextAtom(allocator)) orelse error.ExpectedAtomGotNull;
             }
 
@@ -56,7 +56,7 @@ fn Sexpr(comptime Reader: type) type {
                 return (try self.nextList()) orelse error.ExpectedListGotNull;
             }
 
-            pub fn nextAtom(self: List, allocator: *std.mem.Allocator) !?[]u8 {
+            pub fn nextAtom(self: List, allocator: std.mem.Allocator) !?[]u8 {
                 if (self.isAtEnd()) return null;
 
                 return switch (try self.ctx.scan()) {
@@ -105,7 +105,7 @@ fn Sexpr(comptime Reader: type) type {
                 }
             }
 
-            fn loadIntoAllocator(self: List, allocator: *std.mem.Allocator) ![]u8 {
+            fn loadIntoAllocator(self: List, allocator: std.mem.Allocator) ![]u8 {
                 var list = std.ArrayList(u8).init(allocator);
                 const writer = list.writer();
 
@@ -173,6 +173,7 @@ fn Sexpr(comptime Reader: type) type {
                 error.EndOfStream => return,
                 else => return err,
             };
+            _ = value;
 
             return error.ExpectEos;
         }
@@ -301,7 +302,7 @@ test "sexpr" {
     }
 }
 
-pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
+pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Module {
     var result = try parseNoValidate(allocator, reader);
     errdefer result.deinit();
 
@@ -309,7 +310,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     return result;
 }
 
-pub fn parseNoValidate(allocator: *std.mem.Allocator, reader: anytype) !Module {
+pub fn parseNoValidate(allocator: std.mem.Allocator, reader: anytype) !Module {
     var ctx = sexpr(reader);
     const root = try ctx.root();
 

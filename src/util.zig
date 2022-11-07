@@ -34,18 +34,18 @@ pub const RingAllocator = struct {
     },
 
     pub fn init(buffer: []u8, max_alloc_size: usize) RingAllocator {
-        std.debug.assert(@popCount(usize, max_alloc_size) == 1);
+        std.debug.assert(@popCount(max_alloc_size) == 1);
         std.debug.assert(buffer.len % max_alloc_size == 0);
         return .{
             .buffer = buffer,
-            .alignment = @as(u29, 1) << @intCast(std.math.Log2Int(u29), @ctz(usize, max_alloc_size | @ptrToInt(buffer.ptr))),
+            .alignment = @as(u29, 1) << @intCast(std.math.Log2Int(u29), @ctz(max_alloc_size | @ptrToInt(buffer.ptr))),
             .max_alloc_size = max_alloc_size,
         };
     }
 
     const ShiftSize = std.math.Log2Int(usize);
     fn shiftSize(self: RingAllocator) ShiftSize {
-        return @intCast(ShiftSize, @ctz(usize, self.max_alloc_size));
+        return @intCast(ShiftSize, @ctz(self.max_alloc_size));
     }
 
     fn totalSlots(self: RingAllocator) usize {
@@ -57,7 +57,9 @@ pub const RingAllocator = struct {
             (@ptrToInt(slice.ptr) + slice.len) <= (@ptrToInt(self.buffer.ptr) + self.buffer.len);
     }
 
-    fn alloc(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, return_address: usize) error{OutOfMemory}![]u8 {
+    fn alloc(allocator: std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, return_address: usize) error{OutOfMemory}![]u8 {
+        _ = return_address;
+        _ = len_align;
         const self = @fieldParentPtr(RingAllocator, "allocator", allocator);
         std.debug.assert(ptr_align <= self.alignment);
         if (n >= self.max_alloc_size) {
@@ -74,7 +76,9 @@ pub const RingAllocator = struct {
         return self.buffer[start..][0..self.max_alloc_size];
     }
 
-    fn resize(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_size: usize, len_align: u29, return_address: usize) error{OutOfMemory}!usize {
+    fn resize(allocator: std.mem.Allocator, buf: []u8, buf_align: u29, new_size: usize, len_align: u29, return_address: usize) error{OutOfMemory}!usize {
+        _ = return_address;
+        _ = len_align;
         const self = @fieldParentPtr(RingAllocator, "allocator", allocator);
         std.debug.assert(self.ownsSlice(buf)); // sanity check
         std.debug.assert(buf_align == 1);

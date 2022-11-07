@@ -3,12 +3,12 @@ const std = @import("std");
 const Memory = @This();
 
 pages: std.ArrayListUnmanaged(*[65536]u8),
-allocator: *std.mem.Allocator,
-context: ?*c_void,
+allocator: std.mem.Allocator,
+context: ?*anyopaque,
 
 const page_size = 65536;
 
-pub fn init(allocator: *std.mem.Allocator, context: ?*c_void, initial_pages: u16) !Memory {
+pub fn init(allocator: std.mem.Allocator, context: ?*anyopaque, initial_pages: u16) !Memory {
     var result = Memory{ .allocator = allocator, .pages = .{}, .context = context };
     try result.grow(initial_pages);
     return result;
@@ -35,7 +35,7 @@ pub fn grow(self: *Memory, additional_pages: u16) !void {
     if (new_page_count > 65536) {
         return error.OutOfMemory;
     }
-    try self.pages.ensureCapacity(self.allocator, new_page_count);
+    try self.pages.ensureTotalCapacity(self.allocator, new_page_count);
 
     var i: u16 = 0;
     while (i < additional_pages) : (i += 1) {
@@ -130,11 +130,11 @@ pub fn P(comptime T: type) type {
         }
 
         pub fn add(self: Self, change: u32) !Self {
-            return init(try std.math.add(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
+            return Self.init(try std.math.add(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
         }
 
         pub fn sub(self: Self, change: u32) !Self {
-            return init(try std.math.sub(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
+            return Self.init(try std.math.sub(u32, @enumToInt(self), try std.math.mul(u32, change, stride)));
         }
     };
 }

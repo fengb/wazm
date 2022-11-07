@@ -46,11 +46,13 @@ test "set global" {
 
     {
         const result = try instance.call("get", .{@as(i32, 1)});
+        _ = result;
         try std.testing.expectEqual(Instance.Value{ .I32 = 1 }, instance.getGlobal(0));
     }
 
     {
         const result = try instance.call("get", .{@as(i32, 5)});
+        _ = result;
         try std.testing.expectEqual(Instance.Value{ .I32 = 5 }, instance.getGlobal(0));
     }
 }

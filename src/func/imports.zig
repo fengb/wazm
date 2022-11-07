@@ -17,6 +17,7 @@ test "import" {
     var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
             pub fn thing(mem: *Memory, arg: i32) i32 {
+                _ = mem;
                 return arg + 1;
             }
         };
@@ -48,10 +49,12 @@ test "import multiple" {
     var instance = try module.instantiate(std.testing.allocator, null, struct {
         pub const env = struct {
             pub fn add(mem: *Memory, arg0: i32, arg1: i32) i32 {
+                _ = mem;
                 return arg0 + arg1;
             }
 
             pub fn mul(mem: *Memory, arg0: i32, arg1: i32) i32 {
+                _ = mem;
                 return arg0 * arg1;
             }
         };
