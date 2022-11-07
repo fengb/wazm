@@ -9,7 +9,7 @@ const Execution = @This();
 
 memory: *Memory,
 funcs: []const Instance.Func,
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 instance: *const Instance,
 
 stack: []Op.Fixval,

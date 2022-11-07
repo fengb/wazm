@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const Instance = @import("instance.zig");
 const Op = @import("op.zig");
@@ -236,7 +237,7 @@ test "readVarint" {
 }
 
 fn readVarintEnum(comptime E: type, reader: anytype) !E {
-    const raw = try readVarint(std.meta.TagType(E), reader);
+    const raw = try readVarint(std.meta.Tag(E), reader);
     if (@typeInfo(E).Enum.is_exhaustive) {
         return try std.meta.intToEnum(E, raw);
     } else {
@@ -260,7 +261,7 @@ fn Mut(comptime T: type) type {
 
 // --- Before ---
 // const count = try readVarint(u32, section.reader());
-// result.field = arena.allocator.alloc(@TypeOf(result.field), count);
+// result.field = arena.allocator().alloc(@TypeOf(result.field), count);
 // for (result.field) |*item| {
 //
 // --- After ---
@@ -270,12 +271,12 @@ fn allocInto(self: *Module, ptr_to_slice: anytype, count: usize) !Mut(std.meta.C
     const Slice = Mut(std.meta.Child(@TypeOf(ptr_to_slice)));
     std.debug.assert(@typeInfo(Slice).Pointer.size == .Slice);
 
-    var result = try self.arena.allocator.alloc(std.meta.Child(Slice), count);
+    var result = try self.arena.allocator().alloc(std.meta.Child(Slice), count);
     ptr_to_slice.* = result;
     return result;
 }
 
-pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
+pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Module {
     const signature = try reader.readIntLittle(u32);
     if (signature != magic_number) {
         return error.InvalidFormat;
@@ -289,7 +290,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
     var result = Module.init(std.heap.ArenaAllocator.init(allocator));
     errdefer result.arena.deinit();
 
-    var customs = std.ArrayList(Module.Section(.custom)).init(&result.arena.allocator);
+    var customs = std.ArrayList(Module.Section(.custom)).init(result.arena.allocator());
     errdefer customs.deinit();
 
     while (true) {
@@ -320,12 +321,12 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.import, count)) |*i| {
                     const module_len = try readVarint(u32, section.reader());
-                    const module_data = try result.arena.allocator.alloc(u8, module_len);
+                    const module_data = try result.arena.allocator().alloc(u8, module_len);
                     try section.reader().readNoEof(module_data);
                     i.module = module_data;
 
                     const field_len = try readVarint(u32, section.reader());
-                    const field_data = try result.arena.allocator.alloc(u8, field_len);
+                    const field_data = try result.arena.allocator().alloc(u8, field_len);
                     try section.reader().readNoEof(field_data);
                     i.field = field_data;
 
@@ -380,7 +381,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const count = try readVarint(u32, section.reader());
                 for (try result.allocInto(&result.@"export", count)) |*e| {
                     const field_len = try readVarint(u32, section.reader());
-                    const field_data = try result.arena.allocator.alloc(u8, field_len);
+                    const field_data = try result.arena.allocator().alloc(u8, field_len);
                     try section.reader().readNoEof(field_data);
                     e.field = field_data;
                     e.kind = try readVarintEnum(ExternalKind, section.reader());
@@ -390,6 +391,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
             },
             .start => {
                 const index = try readVarint(u32, section.reader());
+                _ = index;
                 result.start = .{
                     .index = try readVarintEnum(Index.Function, section.reader()),
                 };
@@ -402,6 +404,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     e.offset = try InitExpr.parse(section.reader());
 
                     const num_elem = try readVarint(u32, section.reader());
+                    _ = num_elem;
                     for (try result.allocInto(&e.elems, count)) |*func| {
                         func.* = try readVarintEnum(Index.Function, section.reader());
                     }
@@ -416,7 +419,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
 
                     c.locals = blk: {
                         // TODO: double pass here to preallocate the exact array size
-                        var list = std.ArrayList(Type.Value).init(&result.arena.allocator);
+                        var list = std.ArrayList(Type.Value).init(result.arena.allocator());
                         var local_count = try readVarint(u32, body.reader());
                         while (local_count > 0) : (local_count -= 1) {
                             var current_count = try readVarint(u32, body.reader());
@@ -429,7 +432,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     };
 
                     c.body = body: {
-                        var list = std.ArrayList(Module.Instr).init(&result.arena.allocator);
+                        var list = std.ArrayList(Module.Instr).init(result.arena.allocator());
                         while (true) {
                             const opcode = body.reader().readByte() catch |err| switch (err) {
                                 error.EndOfStream => {
@@ -472,7 +475,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                                         const target_count = try readVarint(u32, body.reader());
                                         const size = target_count + 1; // Implementation detail: we shove the default into the last element of the array
 
-                                        const data = try result.arena.allocator.alloc(u32, size);
+                                        const data = try result.arena.allocator().alloc(u32, size);
                                         for (data) |*item| {
                                             item.* = try readVarint(u32, body.reader());
                                         }
@@ -499,7 +502,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                     d.offset = try InitExpr.parse(section.reader());
 
                     const size = try readVarint(u32, section.reader());
-                    const data = try result.arena.allocator.alloc(u8, size);
+                    const data = try result.arena.allocator().alloc(u8, size);
                     try section.reader().readNoEof(data);
                     d.data = data;
                 }
@@ -509,21 +512,23 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Module {
                 const custom_section = try customs.addOne();
 
                 const name_len = try readVarint(u32, section.reader());
-                const name = try result.arena.allocator.alloc(u8, name_len);
+                const name = try result.arena.allocator().alloc(u8, name_len);
                 try section.reader().readNoEof(name);
                 custom_section.name = name;
 
-                const payload = try result.arena.allocator.alloc(u8, section.bytes_left);
+                const payload = try result.arena.allocator().alloc(u8, section.bytes_left);
                 try section.reader().readNoEof(payload);
                 custom_section.payload = payload;
 
                 try expectEos(section.reader());
             },
+            .data_count => @panic("TODO: handle this section"),
+            _ => @panic("TODO handle unexpected section"),
         }
 
         // Putting this in all the switch paths makes debugging much easier
         // Leaving an extra one here in case one of the paths is missing
-        if (std.builtin.mode == .Debug) {
+        if (builtin.mode == .Debug) {
             try expectEos(section.reader());
         }
     }

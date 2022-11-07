@@ -30,7 +30,7 @@ pub fn init(module: *Module) !PostProcess {
     var temp_arena = std.heap.ArenaAllocator.init(module.arena.child_allocator);
     defer temp_arena.deinit();
 
-    var import_funcs = std.ArrayList(ImportFunc).init(&module.arena.allocator);
+    var import_funcs = std.ArrayList(ImportFunc).init(module.arena.allocator());
     for (module.import) |import| {
         switch (import.kind) {
             .Function => |type_idx| {
@@ -44,8 +44,8 @@ pub fn init(module: *Module) !PostProcess {
         }
     }
 
-    var stack_validator = StackValidator.init(&temp_arena.allocator);
-    var jumps = InstrJumps.init(&module.arena.allocator);
+    var stack_validator = StackValidator.init(temp_arena.allocator());
+    var jumps = InstrJumps.init(module.arena.allocator());
 
     for (module.code) |code, f| {
         try stack_validator.process(import_funcs.items, module, f);
@@ -64,12 +64,13 @@ pub fn init(module: *Module) !PostProcess {
                     });
                 },
                 .br_table => {
-                    const targets = try module.arena.allocator.alloc(JumpTarget, instr.arg.Array.len);
+                    const targets = try module.arena.allocator().alloc(JumpTarget, instr.arg.Array.len);
                     for (targets) |*target, t| {
                         const block_level = instr.arg.Array.ptr[t];
                         const block = stack_validator.blocks.upFrom(instr_idx, block_level) orelse return error.JumpExceedsBlock;
                         const block_instr = code.body[block.start_idx];
                         const target_idx = if (block_instr.op == .loop) block.start_idx else block.end_idx;
+                        _ = target_idx;
                         target.addr = @intCast(u32, if (block_instr.op == .loop) block.start_idx else block.end_idx);
                         target.has_value = block.data != .Empty;
                     }
@@ -151,7 +152,7 @@ pub fn StackLedger(comptime T: type) type {
         top: ?*Node,
         list: std.ArrayList(?Node),
 
-        pub fn init(allocator: *std.mem.Allocator) Self {
+        pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .top = null,
                 .list = std.ArrayList(?Node).init(allocator),
@@ -169,6 +170,8 @@ pub fn StackLedger(comptime T: type) type {
         }
 
         pub fn format(self: Self, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = opts;
             try writer.writeAll("StackLedger(");
             var iter = self.top;
             while (iter) |node| {
@@ -181,7 +184,7 @@ pub fn StackLedger(comptime T: type) type {
         pub fn reset(self: *Self, size: usize) !void {
             self.top = null;
             self.list.shrinkRetainingCapacity(0);
-            try self.list.ensureCapacity(size);
+            try self.list.ensureTotalCapacity(size);
         }
 
         pub fn upFrom(self: Self, start_idx: usize, levels: usize) ?*const Node {
@@ -233,7 +236,7 @@ const StackValidator = struct {
     types: StackLedger(Module.Type.Value),
     blocks: StackLedger(Module.Type.Block),
 
-    pub fn init(allocator: *std.mem.Allocator) StackValidator {
+    pub fn init(allocator: std.mem.Allocator) StackValidator {
         return .{
             .types = StackLedger(Module.Type.Value).init(allocator),
             .blocks = StackLedger(Module.Type.Block).init(allocator),

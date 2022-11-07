@@ -8,7 +8,7 @@ const Memory = @import("Memory.zig");
 const Instance = @This();
 
 module: *const Module,
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 memory: Memory,
 exports: std.StringHashMap(Export),
 funcs: []const Func,
@@ -17,7 +17,7 @@ globals: []Op.Fixval,
 // TODO: revisit if wasm ever becomes multi-threaded
 mutex: std.Thread.Mutex,
 
-pub fn init(module: *const Module, allocator: *std.mem.Allocator, context: ?*c_void, comptime Imports: type) !Instance {
+pub fn init(module: *const Module, allocator: std.mem.Allocator, context: ?*anyopaque, comptime Imports: type) !Instance {
     var exports = std.StringHashMap(Export).init(allocator);
     errdefer exports.deinit();
     for (module.@"export") |exp| {
@@ -110,8 +110,8 @@ pub fn deinit(self: *Instance) void {
 }
 
 pub fn call(self: *Instance, name: []const u8, params: anytype) !?Value {
-    const lock = self.mutex.acquire();
-    defer lock.release();
+    self.mutex.lock();
+    defer self.mutex.unlock();
 
     const exp = self.exports.get(name) orelse return error.ExportNotFound;
     if (exp != .Func) {
@@ -282,9 +282,9 @@ pub fn ImportManager(comptime Imports: type) type {
     var kvs: []const KV = &[0]KV{};
     inline for (std.meta.declarations(Imports)) |decl| {
         if (decl.is_pub) {
-            inline for (std.meta.declarations(decl.data.Type)) |decl2| {
+            inline for (std.meta.declarations(@field(Imports, decl.name))) |decl2| {
                 if (decl2.is_pub) {
-                    const func = @field(decl.data.Type, decl2.name);
+                    const func = @field(@field(Imports, decl.name), decl2.name);
                     const fn_info = @typeInfo(@TypeOf(func)).Fn;
                     const shimmed = helpers.shim(func);
                     kvs = kvs ++ [1]KV{.{
@@ -308,10 +308,11 @@ pub fn ImportManager(comptime Imports: type) type {
     }
 
     const map = if (kvs.len > 0) std.ComptimeStringMap(V, kvs) else {};
+    const final_kvs = kvs;
 
     return struct {
         pub fn get(module: []const u8, field: []const u8) ?V {
-            if (kvs.len == 0) return null;
+            if (final_kvs.len == 0) return null;
 
             var buffer: [1 << 10]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&buffer);
@@ -341,6 +342,6 @@ pub const Func = struct {
     },
 };
 
-test "" {
+test {
     _ = call;
 }

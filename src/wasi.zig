@@ -11,7 +11,7 @@ exit_code: ?Exitcode = null,
 
 const P = Memory.P;
 
-pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !Exitcode {
+pub fn run(self: *Wasi, allocator: std.mem.Allocator, reader: anytype) !Exitcode {
     var module = try Module.parse(allocator, reader);
     defer module.deinit();
 
@@ -35,7 +35,7 @@ pub fn run(self: *Wasi, allocator: *std.mem.Allocator, reader: anytype) !Exitcod
 pub const Size = u32;
 
 /// Non-negative file size or length of a region within a file.
-pub const Filesize: u64;
+pub const Filesize = u64;
 
 /// Timestamp in nanoseconds.
 pub const Timestamp = u64;
@@ -211,6 +211,7 @@ const imports = struct {
             error.NotOpenForWriting => Errno.badf,
             error.WouldBlock => Errno.again,
             error.ConnectionResetByPeer => Errno.connreset,
+            error.LockViolation => Errno.unexpected,
             error.Unexpected => Errno.unexpected,
         };
         try mem.set(nread, @intCast(u32, written));
@@ -245,6 +246,7 @@ const imports = struct {
     }
 
     pub fn clock_res_get(mem: *Memory, clock_id: ClockId, resolution: P(Timestamp)) !Errno {
+        if (true) @panic("TODO implement clock_res_get");
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -263,6 +265,8 @@ const imports = struct {
     }
 
     pub fn clock_time_get(mem: *Memory, clock_id: ClockId, precision: Timestamp, time: P(Timestamp)) !Errno {
+        if (true) @panic("TODO implement clock_time_get");
+        _ = precision;
         const clk: i32 = switch (clock_id) {
             .realtime => std.os.CLOCK_REALTIME,
             .monotonic => std.os.CLOCK_MONOTONIC,
@@ -287,7 +291,8 @@ const imports = struct {
     }
 
     pub fn sched_yield(mem: *Memory) Errno {
-        std.os.sched_yield() catch |err| switch (err) {
+        _ = mem;
+        std.Thread.yield() catch |err| switch (err) {
             error.SystemCannotYield => return Errno.nosys,
         };
         return Errno.success;
